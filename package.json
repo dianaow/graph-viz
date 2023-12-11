@@ -1,0 +1,37 @@
+{
+  "name": "undp-energy-graph",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "autobuild": "vite build --watch",
+    "lint": "npx eslint ./",
+    "lint:fix": "npm run lint -- --fix",
+    "prettier": "npx prettier ./ --check",
+    "prettier:fix": "npm run prettier -- --write",
+    "format": "npm run prettier:fix && npm run lint:fix"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "d3": "^7.8.5",
+    "graphology": "^0.25.4",
+    "graphology-shortest-path": "^2.0.2",
+    "graphology-traversal": "^0.3.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.50.0",
+    "eslint-config-prettier": "^9.0.0",
+    "prettier": "^3.0.3",
+    "vite": "^4.4.9"
+  },
+  "prettier": {
+    "trailingComma": "es5",
+    "tabWidth": 2,
+    "printWidth": 1000,
+    "singleQuote": false
+  }
+}
