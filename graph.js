@@ -3,42 +3,6 @@ import { bfsFromNode } from "graphology-traversal";
 import { dijkstra } from "graphology-shortest-path";
 import Graph from "graphology";
 
-function generatePath(d, exclude_radius) {
-  var dx = d.target.x - d.source.x;
-  var dy = d.target.y - d.source.y;
-  var gamma = Math.atan2(dy, dx); // Math.atan2 returns the angle in the correct quadrant as opposed to Math.atan
-
-  if (exclude_radius) {
-    var sourceNewX = d.source.x + Math.cos(gamma) * d.source.r;
-    var sourceNewY = d.source.y + Math.sin(gamma) * d.source.r;
-    var targetNewX = d.target.x - Math.cos(gamma) * d.target.r;
-    var targetNewY = d.target.y - Math.sin(gamma) * d.target.r;
-  } else {
-    var sourceNewX = d.source.x;
-    var sourceNewY = d.source.y;
-    var targetNewX = d.target.x;
-    var targetNewY = d.target.y;
-  }
-
-  // Coordinates of mid point on line to add new vertex.
-  let midX = (targetNewX - sourceNewX) / 2 + sourceNewX;
-  let midY = (targetNewY - sourceNewY) / 2 + sourceNewY;
-  return "M" + sourceNewX + "," + sourceNewY + "L" + midX + "," + midY + "L" + targetNewX + "," + targetNewY;
-}
-
-// Throttle function to limit the mouseover event frequency
-function throttle(func, delay) {
-  let timeout;
-  return function () {
-    if (!timeout) {
-      func.apply(this, arguments);
-      timeout = setTimeout(() => {
-        timeout = null;
-      }, delay);
-    }
-  };
-}
-
 export default function ForceGraph(
   {
     nodes, // an iterable of node objects (typically [{id}, …])
@@ -641,18 +605,84 @@ export default function ForceGraph(
     return value !== null && typeof value === "object" ? value.valueOf() : value;
   }
 
-  function createButtons() {
-    // Function to create a button element with a specified label and action
-    function createButton(label, action) {
-      const button = document.createElement("button");
-      button.textContent = label;
-      button.classList.add("button");
-      button.addEventListener("click", action);
-      return button;
+  function initGraphologyGraph(nodes, links) {
+    // Initialize a new Graphology graph and add all nodes and edges to it
+    // This will be used for shortest path and finding neighbours later
+    const graph = new Graph();
+  
+    nodes.forEach((n) => {
+      if (!graph.hasNode(n.id)) graph.addNode(n.id);
+    });
+    links.forEach((e) => {
+      if (e.source.id && e.target.id) {
+        if (graph.hasNode(e.source.id) && graph.hasNode(e.target.id)) {
+          if (!graph.hasEdge(e.source.id, e.target.id)) {
+            graph.addEdge(e.source.id, e.target.id);
+          }
+        }
+      } else {
+        if (graph.hasNode(e.source) && graph.hasNode(e.target)) {
+          if (!graph.hasEdge(e.source, e.target)) {
+            graph.addEdge(e.source, e.target);
+          }
+        }
+      }
+    });
+  
+    return graph;
+  }
+
+  function generatePath(d, exclude_radius) {
+    var dx = d.target.x - d.source.x;
+    var dy = d.target.y - d.source.y;
+    var gamma = Math.atan2(dy, dx); // Math.atan2 returns the angle in the correct quadrant as opposed to Math.atan
+
+    if (exclude_radius) {
+      var sourceNewX = d.source.x + Math.cos(gamma) * d.source.r;
+      var sourceNewY = d.source.y + Math.sin(gamma) * d.source.r;
+      var targetNewX = d.target.x - Math.cos(gamma) * d.target.r;
+      var targetNewY = d.target.y - Math.sin(gamma) * d.target.r;
+    } else {
+      var sourceNewX = d.source.x;
+      var sourceNewY = d.source.y;
+      var targetNewX = d.target.x;
+      var targetNewY = d.target.y;
     }
 
-    // Function to perform an action when a button is clicked
-    function buttonClickHandler(event) {
+    // Coordinates of mid point on line to add new vertex.
+    let midX = (targetNewX - sourceNewX) / 2 + sourceNewX;
+    let midY = (targetNewY - sourceNewY) / 2 + sourceNewY;
+    return "M" + sourceNewX + "," + sourceNewY + "L" + midX + "," + midY + "L" + targetNewX + "," + targetNewY;
+  }
+  //////////////////////////////////////////////////////////////////
+
+  return {
+    on: function(eventName, callback) {
+      // Add a callback to the event
+      if (!events[eventName]) {
+        events[eventName] = [];
+      }
+      events[eventName].push(callback);
+    },
+
+    searchHandler(item) {
+      searched = true;
+      searchInput.value = item.NAME;
+      suggestionsContainer.style.display = "none";
+      resetSearchIcon.style.display = "block";
+
+      const node = showEle.nodes.find((n) => n.NAME === item.NAME);
+      if (node) {
+        zoomToNode(item.NAME);
+        highlightNode(item.NAME);
+      } else {
+        d3.select(".message").style("visibility", "visible");
+        d3.select(".shortestPath-status").html("No such node found.");
+      }
+    },
+
+    buttonClickHandler(event) {
+      // Function to perform an action when a button is clicked
       const buttonId = event.target.getAttribute("data-button-id");
 
       // Check which button was clicked using its ID
@@ -738,120 +768,6 @@ export default function ForceGraph(
       }
     }
 
-    // Create an array of button labels
-    const buttonLabels = ["Show directions", "Show neighbors",  "Show shortest path", "Hide Single Nodes", "Reset"];
+  };
 
-    // Get the button panel element
-    const buttonPanel = document.getElementById("buttonPanel");
-
-    // Create and append buttons to the panel
-    buttonLabels.forEach((label, index) => {
-      const button = createButton(label, buttonClickHandler);
-      button.setAttribute("data-button-id", `button${index + 1}`);
-      buttonPanel.appendChild(button);
-    });
-  }
-
-  function createSearch(variableData) {
-    const searchInput = document.getElementById("search-input");
-    const resetSearchIcon = document.getElementById("reset-search");
-    const suggestionsContainer = document.getElementById("suggestions-container");
-
-    // Function to filter suggestions based on user input
-    function filterSuggestions(input) {
-      return variableData.filter((item) => {
-        return item.NAME.toLowerCase().includes(input.toLowerCase());
-      });
-    }
-
-    // Function to update the suggestions dropdown
-    function updateSuggestions(input) {
-      const filteredSuggestions = filterSuggestions(input);
-      suggestionsContainer.innerHTML = "";
-
-      filteredSuggestions.sort(function (a, b) {
-        return a.NAME.toLowerCase().localeCompare(b.NAME.toLowerCase());
-      });
-
-      filteredSuggestions.forEach((item) => {
-        const suggestionElement = document.createElement("div");
-        suggestionElement.classList.add("suggestion");
-        suggestionElement.textContent = `${item.NAME}`;
-        suggestionElement.addEventListener("click", () => {
-          searched = true;
-          searchInput.value = item.NAME;
-          suggestionsContainer.style.display = "none";
-          resetSearchIcon.style.display = "block";
-
-          const node = showEle.nodes.find((n) => n.NAME === item.NAME);
-          if (node) {
-            zoomToNode(item.NAME);
-            highlightNode(item.NAME);
-          } else {
-            d3.select(".message").style("visibility", "visible");
-            d3.select(".shortestPath-status").html("No such node found.");
-          }
-        });
-
-        suggestionsContainer.appendChild(suggestionElement);
-      });
-
-      if (filteredSuggestions.length > 0) {
-        suggestionsContainer.style.display = "block";
-      } else {
-        suggestionsContainer.style.display = "none";
-      }
-    }
-
-    // Event listener for input changes
-    searchInput.addEventListener("input", () => {
-      simulation.alpha(0);
-      const inputValue = searchInput.value;
-      updateSuggestions(inputValue);
-    });
-
-    // Event listener for clicking the reset icon
-    resetSearchIcon.addEventListener("click", () => {
-      searched = false;
-      searchInput.value = "";
-      suggestionsContainer.innerHTML = "";
-      resetSearchIcon.style.display = "none";
-      reset();
-    });
-
-    // Close suggestions when clicking outside
-    document.addEventListener("click", (event) => {
-      if (!suggestionsContainer.contains(event.target)) {
-        suggestionsContainer.style.display = "none";
-      }
-    });
-  }
-  //////////////////////////////////////////////////////////////////
-}
-
-function initGraphologyGraph(nodes, links) {
-  // Initialize a new Graphology graph and add all nodes and edges to it
-  // This will be used for shortest path and finding neighbours later
-  const graph = new Graph();
-
-  nodes.forEach((n) => {
-    if (!graph.hasNode(n.id)) graph.addNode(n.id);
-  });
-  links.forEach((e) => {
-    if (e.source.id && e.target.id) {
-      if (graph.hasNode(e.source.id) && graph.hasNode(e.target.id)) {
-        if (!graph.hasEdge(e.source.id, e.target.id)) {
-          graph.addEdge(e.source.id, e.target.id);
-        }
-      }
-    } else {
-      if (graph.hasNode(e.source) && graph.hasNode(e.target)) {
-        if (!graph.hasEdge(e.source, e.target)) {
-          graph.addEdge(e.source, e.target);
-        }
-      }
-    }
-  });
-
-  return graph;
 }
