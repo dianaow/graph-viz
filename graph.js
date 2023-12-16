@@ -2,6 +2,7 @@ import * as d3 from 'd3'
 import { bfsFromNode } from 'graphology-traversal'
 import { dijkstra } from 'graphology-shortest-path'
 import Graph from 'graphology'
+import { generateArc, generatePath } from './pathUtils.js';
 
 export default function ForceGraph (
   {
@@ -24,6 +25,7 @@ export default function ForceGraph (
     linkStroke = '#ffffff', // link stroke color
     linkStrokeOpacity = 1, // link stroke opacity
     linkStrokeWidth = 1.5, // given d in links, returns a stroke width in pixels
+    linkType = 'line',
     labelFontWeight = 'normal',
     labelVisibility = 'hidden',
     labelColor = '#ffffff',
@@ -49,7 +51,8 @@ export default function ForceGraph (
     },
     containerStyles = {
       'background-color': '#000000',
-      color: '#ffffff'
+      color: '#ffffff',
+      'font-family': 'Courier'
     }
   } = {}
 ) {
@@ -105,7 +108,7 @@ export default function ForceGraph (
   const nodeRadiusScale = d3
     .scaleSqrt()
     .domain([0, d3.max(Object.values(nodeDegrees))])
-    .range([4.5, 22])
+    .range([6, 24])
     .clamp(true)
 
   /// //////////////// Set up initial  DOM elements on screen ///////////////////
@@ -134,17 +137,26 @@ export default function ForceGraph (
     .style('text-align', 'center')
     .style('visibility', 'hidden')
 
-  message.append('h2').attr('class', 'clickedNodes-1')
+  message.append('div')
+    .attr('class', 'clickedNodes-1')
+    .style('padding', '0px')
+    .style('font-size', '14px')
 
-  message.append('h2').attr('class', 'clickedNodes-2')
+  message.append('div')
+    .attr('class', 'clickedNodes-2')
+    .style('padding', '0px')
+    .style('font-size', '14px')
 
-  message.append('h3').attr('class', 'shortestPath-status')
+  message.append('div')
+    .attr('class', 'shortestPath-status')
+    .style('padding', '0px')
+    .style('font-size', '12px')
 
-  message.append('h3')
+  message.append('div')
     .attr('class', 'clickedNodes-reset')
-    .attr('text-decoration', 'underline')
-    .attr('pointer-events', 'auto')
-    .attr('cursor', 'pointer')
+    .style('text-decoration', 'underline')
+    .style('pointer-events', 'auto')
+    .style('cursor', 'pointer')
     .html('RESET')
     .on('click', function () {
       reset()
@@ -222,9 +234,29 @@ export default function ForceGraph (
 
     showEle.nodes.forEach((n) => {
       n.linkCnt = nodeDegrees[n.id] || 0
+      let radius = nodeRadiusScale(n.linkCnt)
+      let substrings = splitLongText(n.NAME, 30)
+
+      let texts = []
+      substrings.map(string => {
+        let text = getTextSize(string, Math.max(8, radius) + 'px', containerStyles['font-family'])
+        texts.push({text: string, width: text.width, height: text.height})
+      })
+
+      //n.width = n.NAME.length * radius + radius
+      //n.height = radius * 2
+      n.width = d3.max(texts, d => d.width) + (radius * 2)
+      n.height = d3.max(texts, d => d.height) * substrings.length + radius
+      n.radius = radius
     })
 
     const graph = initGraphologyGraph(showEle.nodes, showEle.links)
+
+    // Create a quadtree for efficient collision detection
+    const quadtree = d3.quadtree()
+      .x(function(d) { return d.x; })
+      .y(function(d) { return d.y; })
+      .addAll(showEle.nodes);
 
     const clickNodeForShortestPath = (dd) => {
       if (clickedNodes.length < 2) {
@@ -279,23 +311,28 @@ export default function ForceGraph (
         'y',
         d3.forceY((d) => d.y)
       )
-      .force(
-        'collide',
-        d3
-          .forceCollide()
-          .radius((d) => d.radius)
-          .iterations(3)
-      )
+      // .force(
+      //   'collide',
+      //   d3
+      //     .forceCollide()
+      //     .radius((d) => d.radius)
+      //     .iterations(3)
+      // )
+      .force("collide", forceCollide())
       // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
-      .force('charge', d3.forceManyBody().strength(-250))
+      .force('charge', d3.forceManyBody().strength(-600))
       .force('cluster', forceCluster().strength(0.15))
 
     // Restart the force layout
     simulation.nodes(showEle.nodes).force('link').links(showEle.links)
 
-    simulation.on('tick', ticked)
+    simulation.alphaTarget(0.5).restart() // increase alphaDecay value to cool down a graph more quickly
 
-    simulation.alphaTarget(0.5).alphaDecay(0.3).restart() // increase alphaDecay value to cool down a graph more quickly
+    simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())));
+
+    //simulation.on('tick', ticked)
+
+    quadtree.addAll(showEle.nodes);
 
     // Update existing links
     const link = linkG
@@ -314,7 +351,7 @@ export default function ForceGraph (
       .attr('stroke', linkStroke)
       .attr('stroke-width', linkStrokeWidth)
       .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStrokeOpacity))
-      .attr('d', (d) => generatePath(d))
+      .attr('d', (d) => linkType === 'arc' ? generateArc(d, 1) : generatePath(d))
 
     if (showArrows) {
       linkG.selectAll('path.link').attr('marker-mid', 'url(#arrowhead)') // render arrow heads in the middle of line
@@ -332,14 +369,19 @@ export default function ForceGraph (
           enter
             .append('text')
             .attr('class', 'link')
-            .attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 10)
-            .attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
+            //.attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 10)
+            //.attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
+            .attr("dy", -3)
+            .append("textPath")
+            .attr("xlink:href", function(d, i) { return '#' + d.source.id + '_' + d.target.id })
+            .attr("startOffset", "50%")
+            .attr('text-anchor', 'middle')
             .text((d) => d.Relation),
 
         (update) => update,
         (exit) => exit.remove()
       )
-      .attr('opacity', 0.2)
+      .attr('opacity', 0.4)
       .attr('fill', linkStroke)
       .attr('font-size', '6px')
 
@@ -396,10 +438,19 @@ export default function ForceGraph (
           .append('circle')
           .attr('fill', nodeFill)
           .attr('stroke', nodeStroke)
-          .attr('r', (d) => nodeRadiusScale(d.linkCnt))
+          .attr('r', (d) => d.radius)
           .attr('fill-opacity', nodeFillOpacity)
           .attr('stroke-opacity', nodeStrokeOpacity)
           .attr('stroke-width', nodeStrokeWidth)
+
+        // newNode
+        //   .append('rect')
+        //   .attr('fill', nodeFill)
+        //   .attr('stroke', nodeStroke)
+        //   .attr('x', (d) => -d.radius)
+        //   .attr('y', (d) => -d.radius)
+        //   .attr('width', (d) => d.width)
+        //   .attr('height', (d) => d.height)
 
         if (G) newNode.select('circle').attr('fill', (d, i) => color(G[i]))
 
@@ -421,9 +472,10 @@ export default function ForceGraph (
           .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
           .attr('visibility', labelVisibility)
 
-        newText
+        const text = newText
           .append('text')
-          .attr('x', (d) => nodeRadiusScale(d.linkCnt) + 2) // position label next to node without overlap
+          .attr('transform', (d) => `translate(${nodeRadiusScale(d.linkCnt) + 2}, 0)`)
+          //.attr('x', (d) => nodeRadiusScale(d.linkCnt) + 2) // position label next to node without overlap
           .attr('dominant-baseline', 'middle')
           .attr('text-anchor', 'start')
           .attr('fill', labelColor)
@@ -431,7 +483,14 @@ export default function ForceGraph (
           .attr('stroke-width', 0.25)
           .attr('font-size', (d) => Math.max(8, nodeRadiusScale(d.linkCnt))) // label size is proportionate to node size
           .attr('font-weight', labelFontWeight)
-          .text((d, i) => T[i])
+          //.text((d, i) => T[i])
+
+          text.selectAll("tspan")
+            .data((d) => splitLongText(d.NAME, 30)) // max line length is 30
+            .enter().append("tspan")
+            .attr("x", 0)
+            .attr("y", (d,i) => 8 * i)
+            .text((d) => d);
 
         return newText
       },
@@ -439,33 +498,36 @@ export default function ForceGraph (
       (exit) => exit.remove()
     )
 
+    ticked()
+
     function ticked () {
-      link.attr('d', (d) => generatePath(d))
+      link.attr('d', (d) => linkType === 'arc' ? generateArc(d, 1) : generatePath(d))
       nodeG.selectAll('.node').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       textG.selectAll('.label').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       linkTexts.attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 6).attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
     }
-  }
 
-  function drag (simulation) {
-    function dragstarted (event, d) {
-      if (!event.active) simulation.alphaTarget(0.3).restart()
-      d.fx = d.x
-      d.fy = d.y
+    function drag (simulation) {
+      function dragstarted (event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart()
+        d.fx = d.x
+        d.fy = d.y
+        simulation.on('tick', ticked)
+      }
+  
+      function dragged (event, d) {
+        d.fx = event.x
+        d.fy = event.y
+      }
+  
+      function dragended (event, d) {
+        if (!event.active) simulation.alphaTarget(0)
+        d.fx = null
+        d.fy = null
+      }
+      
+      return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended)
     }
-
-    function dragged (event, d) {
-      d.fx = event.x
-      d.fy = event.y
-    }
-
-    function dragended (event, d) {
-      if (!event.active) simulation.alphaTarget(0)
-      d.fx = null
-      d.fy = null
-    }
-
-    return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended)
   }
 
   function centroid (nodes) {
@@ -499,6 +561,101 @@ export default function ForceGraph (
     }
     return force
   }
+
+  function forceCollide() {
+    let nodes;
+  
+    function force(alpha) {
+      const quad = d3.quadtree(nodes, d => d.x, d => d.y);
+      const padding = 10
+      for (const d of nodes) {
+        quad.visit((q, x1, y1, x2, y2) => {
+          let updated = false;
+          if(q.data && q.data !== d){
+            let x = (d.x - d.radius) - (q.data.x - q.data.radius),
+            y = (d.y - d.radius) - (q.data.y - q.data.radius),
+            xSpacing = padding + (q.data.width + d.width) / 2,
+            ySpacing = padding + (q.data.height + d.height) / 2,
+            absX = Math.abs(x),
+            absY = Math.abs(y),
+            l,
+            lx,
+            ly;
+  
+            if (absX < xSpacing && absY < ySpacing) {
+              l = Math.sqrt(x * x + y * y);
+  
+              lx = (absX - xSpacing) / l;
+              ly = (absY - ySpacing) / l;
+  
+              // the one that's barely within the bounds probably triggered the collision
+              if (Math.abs(lx) > Math.abs(ly)) {
+                lx = 0;
+              } else {
+                ly = 0;
+              }
+              d.x -= x *= lx;
+              d.y -= y *= ly;
+              q.data.x += x;
+              q.data.y += y;
+  
+              updated = true;
+            }
+          }
+          return updated;
+        });
+      }
+    }
+  
+    force.initialize = _ => nodes = _;
+  
+    return force;
+  }
+
+  // Function to split long text into lines
+  function splitLongText(text, maxLineLength) {
+    var words = text.split(' ');
+    var lines = [];
+    var currentLine = '';
+
+    words.forEach(function(word) {
+      if (currentLine.length + word.length <= maxLineLength) {
+        currentLine += word + ' ';
+      } else {
+        lines.push(currentLine.trim());
+        currentLine = word + ' ';
+      }
+    });
+
+    if (currentLine.trim() !== '') {
+      lines.push(currentLine.trim());
+    }
+
+    return lines;
+  }
+
+  function getTextSize(text, fontSize, fontFamily) {
+    // Create a temporary span element
+    var span = document.createElement("span");
+    span.textContent = text;
+  
+    // Set the font for the text measurement
+    span.style.fontSize = fontSize;
+    span.style.fontFamily = fontFamily;
+  
+    // Append the span to the document body
+    document.body.appendChild(span);
+  
+    // Measure the width and height of the text
+    var width = span.offsetWidth;
+    var height = span.offsetHeight;
+  
+    // Clean up the temporary span
+    document.body.removeChild(span);
+  
+    return { width: width, height: height };
+  }
+  
   /// ///////////////////////////////////////////////////////////////////////////
 
   /// //////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
@@ -649,31 +806,8 @@ export default function ForceGraph (
 
     return graph
   }
+  ///////////////////////////////////////////////////////////////////
 
-  function generatePath (d, excludeRadius) {
-    const dx = d.target.x - d.source.x
-    const dy = d.target.y - d.source.y
-    const gamma = Math.atan2(dy, dx) // Math.atan2 returns the angle in the correct quadrant as opposed to Math.atan
-
-    let sourceNewX, sourceNewY, targetNewX, targetNewY
-    if (excludeRadius) {
-      sourceNewX = d.source.x + Math.cos(gamma) * d.source.r
-      sourceNewY = d.source.y + Math.sin(gamma) * d.source.r
-      targetNewX = d.target.x - Math.cos(gamma) * d.target.r
-      targetNewY = d.target.y - Math.sin(gamma) * d.target.r
-    } else {
-      sourceNewX = d.source.x
-      sourceNewY = d.source.y
-      targetNewX = d.target.x
-      targetNewY = d.target.y
-    }
-
-    // Coordinates of mid point on line to add new vertex.
-    const midX = (targetNewX - sourceNewX) / 2 + sourceNewX
-    const midY = (targetNewY - sourceNewY) / 2 + sourceNewY
-    return 'M' + sourceNewX + ',' + sourceNewY + 'L' + midX + ',' + midY + 'L' + targetNewX + ',' + targetNewY
-  }
-  /// ///////////////////////////////////////////////////////////////
   function searchHandler (item) {
     searched = true
     const node = showEle.nodes.find((n) => n.NAME === item)
