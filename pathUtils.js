@@ -1,96 +1,67 @@
-export function generateArc(d, NUM) {
-  var sourceLngLat = d.source,
-    targetLngLat = d.target;
+export function generateArc (d, NUM, excludeRadius) {
+  const dx = d.target.x - d.source.x
+  const dy = d.target.y - d.source.y
 
-  if (targetLngLat && sourceLngLat) {
-    var sourceX = sourceLngLat.x,
-      sourceY = sourceLngLat.y;
+  const initialPoint = { x: d.source.x, y: d.source.y }
+  const finalPoint = { x: d.target.x, y: d.target.y }
+  d.r = Math.sqrt(sq(dx) + sq(dy)) * 0.75
+  const centers = findCenters(d.r, initialPoint, finalPoint)
 
-    var targetX = targetLngLat.x,
-      targetY = targetLngLat.y;
-
-    var dx = targetX - sourceX,
-      dy = targetY - sourceY;
-
-    var initialPoint = { x: sourceX, y: sourceY };
-    var finalPoint = { x: targetX, y: targetY };
-    d.r = Math.sqrt(sq(dx) + sq(dy)) * 0.75;
-    var centers = findCenters(d.r, initialPoint, finalPoint);
-    var path = drawCircleArcSVG(
-      centers.c1,
-      d.r,
-      initialPoint,
-      finalPoint,
-      NUM,
-      0,
-      d.targetNodeRadius
-    );
-    return path;
-  }
+  const path = drawCircleArcSVG(centers.c1, d.r, initialPoint, finalPoint, NUM, d.source.radius, d.target.radius + d.strokeWidth + 5 * d.strokeWidth * 0.8)
+  return path
 }
 
-function sq(x) {
-  return x * x;
+function sq (x) {
+  return x * x
 }
 
-function findCenters(r, p1, p2) {
-  var pm = { x: 0.5 * (p1.x + p2.x), y: 0.5 * (p1.y + p2.y) };
-  var perpABdx = -(p2.y - p1.y);
-  var perpABdy = p2.x - p1.x;
-  var norm = Math.sqrt(sq(perpABdx) + sq(perpABdy));
-  perpABdx /= norm;
-  perpABdy /= norm;
-  var dpmp1 = Math.sqrt(sq(pm.x - p1.x) + sq(pm.y - p1.y));
-  var sin = dpmp1 / r;
-  if (sin < -1 || sin > 1) return null;
-  var cos = Math.sqrt(1 - sq(sin));
-  var d = r * cos;
-  var res1 = { x: pm.x + perpABdx * d, y: pm.y + perpABdy * d };
-  var res2 = { x: pm.x - perpABdx * d, y: pm.y - perpABdy * d };
-  return { c1: res1, c2: res2 };
+function findCenters (r, p1, p2) {
+  const pm = { x: 0.5 * (p1.x + p2.x), y: 0.5 * (p1.y + p2.y) }
+  let perpABdx = -(p2.y - p1.y)
+  let perpABdy = p2.x - p1.x
+  const norm = Math.sqrt(sq(perpABdx) + sq(perpABdy))
+  perpABdx /= norm
+  perpABdy /= norm
+  const dpmp1 = Math.sqrt(sq(pm.x - p1.x) + sq(pm.y - p1.y))
+  const sin = dpmp1 / r
+  if (sin < -1 || sin > 1) return null
+  const cos = Math.sqrt(1 - sq(sin))
+  const d = r * cos
+  const res1 = { x: pm.x + perpABdx * d, y: pm.y + perpABdy * d }
+  const res2 = { x: pm.x - perpABdx * d, y: pm.y - perpABdy * d }
+  return { c1: res1, c2: res2 }
 }
 
-function polarToCartesian(centerX, centerY, radius, angleInDegrees, offset) {
-  var angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
+function polarToCartesian (centerX, centerY, radius, angleInDegrees, offset) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0
 
   return {
     x: centerX + radius * Math.cos(angleInRadians) - offset * Math.cos(angleInRadians),
-    y: centerY + radius * Math.sin(angleInRadians) - offset * Math.sin(angleInRadians),
-  };
+    y: centerY + radius * Math.sin(angleInRadians) - offset * Math.sin(angleInRadians)
+  }
 }
 
-function describeArc(x, y, radius, startAngle, endAngle, NUM, sourceNodeRadius, targetNodeRadius) {
-  var large_arc_flag = endAngle - startAngle <= 180 ? '0' : '1';
-  var start = polarToCartesian(x, y, radius, startAngle, sourceNodeRadius || 0);
-  var end = polarToCartesian(x, y, radius, endAngle, targetNodeRadius || 0);
+function describeArc (x, y, radius, startAngle, endAngle, NUM, sourceNodeRadius, targetNodeRadius) {
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1'
+  const start = polarToCartesian(x, y, radius, startAngle, sourceNodeRadius || 0)
+  const end = polarToCartesian(x, y, radius, endAngle, targetNodeRadius || 0)
+  let sweepFlag = 0
   if (NUM === 1) {
-    var sweep_flag = 0;
+    sweepFlag = 0
   } else if (NUM === 2) {
-    var sweep_flag = 1;
+    sweepFlag = 1
   }
 
-  var d = [
-    'M',
-    start.x,
-    start.y,
-    'A',
-    radius,
-    radius,
-    0,
-    large_arc_flag,
-    sweep_flag,
-    end.x,
-    end.y,
-  ].join(' ');
+  const d = ['M', start.x, start.y, 'A', radius, radius, 0, largeArcFlag, sweepFlag, end.x, end.y].join(' ')
 
-  return d;
+  return d
 }
 
-function drawCircleArcSVG(c, r, p1, p2, NUM, sourceNodeRadius, targetNodeRadius) {
-  var ang1 = (Math.atan2(p1.y - c.y, p1.x - c.x) * 180) / Math.PI + 90;
-  var ang2 = (Math.atan2(p2.y - c.y, p2.x - c.x) * 180) / Math.PI + 90;
-  var path = describeArc(c.x, c.y, r, ang1, ang2, NUM, sourceNodeRadius, targetNodeRadius);
-  return path;
+function drawCircleArcSVG (c, r, p1, p2, NUM, sourceNodeRadius, targetNodeRadius) {
+  const ang1 = (Math.atan2(p1.y - c.y, p1.x - c.x) * 180) / Math.PI + 90
+  const ang2 = (Math.atan2(p2.y - c.y, p2.x - c.x) * 180) / Math.PI + 90
+  const path = describeArc(c.x, c.y, r, ang1, ang2, NUM, sourceNodeRadius, targetNodeRadius)
+  return path
 }
 
 export function generatePath (d, excludeRadius) {
@@ -100,10 +71,11 @@ export function generatePath (d, excludeRadius) {
 
   let sourceNewX, sourceNewY, targetNewX, targetNewY
   if (excludeRadius) {
-    sourceNewX = d.source.x + Math.cos(gamma) * d.source.r
-    sourceNewY = d.source.y + Math.sin(gamma) * d.source.r
-    targetNewX = d.target.x - Math.cos(gamma) * d.target.r
-    targetNewY = d.target.y - Math.sin(gamma) * d.target.r
+    console.log(d)
+    sourceNewX = d.source.x + Math.cos(gamma) * d.source.radius
+    sourceNewY = d.source.y + Math.sin(gamma) * d.source.radius
+    targetNewX = d.target.x - Math.cos(gamma) * (d.target.radius + d.strokeWidth + 5)
+    targetNewY = d.target.y - Math.sin(gamma) * (d.target.radius + d.strokeWidth + 5)
   } else {
     sourceNewX = d.source.x
     sourceNewY = d.source.y

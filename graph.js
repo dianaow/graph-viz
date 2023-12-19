@@ -2,7 +2,43 @@ import * as d3 from 'd3'
 import { bfsFromNode } from 'graphology-traversal'
 import { dijkstra } from 'graphology-shortest-path'
 import Graph from 'graphology'
-import { generateArc, generatePath } from './pathUtils.js';
+import { generateArc, generatePath } from './pathUtils.js'
+import { splitLongText, getTextSize } from './utils.js'
+
+const defaultContainerStyles = {
+  'background-color': '#15181F',
+  color: '#ffffff',
+  'font-family': 'Courier'
+}
+
+const defaultLabelStyles = {
+  fontWeight: 'normal',
+  visibility: 'hidden',
+  color: '#ffffff',
+  label: '',
+  edge: {
+    visibility: 'hidden',
+    opacity: 0.4,
+    'font-size': '6px',
+    label: ''
+  }
+}
+
+const defaultNodeStyles = {
+  // fill: '#000000', // node color (only applied if specified)
+  // stroke : '#000000', // node stroke color (only applied if specified)
+  strokeWidth: 1, // node stroke width, in pixels
+  fillOpacity: 0.8, // node stroke opacity
+  strokeOpacity: 1, // node stroke opacity
+  type: 'standard' // gradient/standard/filled
+}
+
+const defaultLinkStyles = {
+  // stroke : '#ffffff', // link stroke color (only applied if specified, if not it will follow the source node color)
+  strokeOpacity: 1, // link stroke opacity
+  strokeWidth: 2, // given d in links, returns a stroke width in pixels
+  type: 'arc' // arc/line
+}
 
 export default function ForceGraph (
   {
@@ -14,49 +50,52 @@ export default function ForceGraph (
     nodeId = 'id', // given d in nodes, returns a unique identifier (string)
     sourceId = 'source',
     targetId = 'target',
-    nodeGroup, // given d in nodes, returns an (ordinal) value for color
-    nodeGroups, // an array of ordinal values representing the node groups
-    nodeTitle, // given d in nodes, a title string
-    nodeFill = 'currentColor', // node stroke fill (if not using a group color encoding)
-    nodeStroke = '#000000', // node stroke color
-    nodeStrokeWidth = 1, // node stroke width, in pixels
-    nodeFillOpacity = 1, // node stroke opacity
-    nodeStrokeOpacity = 1, // node stroke opacity
-    linkStroke = '#ffffff', // link stroke color
-    linkStrokeOpacity = 1, // link stroke opacity
-    linkStrokeWidth = 1.5, // given d in links, returns a stroke width in pixels
-    linkType = 'line',
-    labelFontWeight = 'normal',
-    labelVisibility = 'hidden',
-    labelColor = '#ffffff',
+    nodeGroup, // key in data representing a node group
     colors = d3.schemeTableau10, // an array of color strings, for the node groups
     width = 640, // outer width, in pixels
     height = 400, // outer height, in pixels
+    nodeStyles = defaultNodeStyles,
+    linkStyles = defaultLinkStyles,
+    labelStyles = defaultLabelStyles,
+    containerStyles = defaultContainerStyles,
     tooltip = {
-      show: true,
       styles: {
-        width: '150px',
+        width: 'auto',
         height: 'auto',
-        padding: '10px',
+        padding: '8px',
         'background-color': '#ffffff',
         color: '#000000',
-        border: '1px solid #000000',
-        'z-index': 10,
+        border: '1px solid #ddd',
+        'z-index': 10
       },
-      custom: function (tooltipEl, d){
-        let tooltip = tooltipEl.node()
-        tooltip.style.display = 'block';
-        tooltip.style.position = 'absolute';
-      } 
-    },
-    containerStyles = {
-      'background-color': '#000000',
-      color: '#ffffff',
-      'font-family': 'Courier'
+      custom: function (tooltipEl, d) {
+        const tooltip = tooltipEl.node()
+        tooltip.style.display = 'block'
+        tooltip.style.position = 'absolute'
+      }
     }
   } = {}
 ) {
+  // Merge default and user given styles
+  containerStyles = { ...defaultContainerStyles, ...containerStyles }
+  labelStyles = { ...defaultLabelStyles, ...labelStyles }
+  linkStyles = { ...defaultLinkStyles, ...linkStyles }
+  nodeStyles = { ...defaultNodeStyles, ...nodeStyles }
+  labelStyles.edge = { ...defaultLabelStyles.edge, ...labelStyles.edge }
+
+  if (containerStyles.theme === 'dark') {
+    containerStyles['background-color'] = '#15181F'
+    containerStyles.color = '#ffffff'
+    labelStyles.color = containerStyles.color
+  } else if (containerStyles.theme === 'light') {
+    containerStyles['background-color'] = '#ffffff'
+    containerStyles.color = '#000000'
+    labelStyles.color = containerStyles.color
+  }
+  if (!containerStyles['font-family']) containerStyles['font-family'] = 'Courier'
+
   // Initial states
+  const maxLineLength = 30
   const showEle = {}
   const nodeDegrees = {} // an object to store each node degree (number of connections that a node has to other nodes in the network)
   let singleNodeIDs = [] // an array to store the names of nodes with no connections to other nodes
@@ -73,7 +112,7 @@ export default function ForceGraph (
 
   // Button activation states
   // Note: there are different consequences for a VIEW state and BUTTON ACTIVATION state, so these variables are separated)
-  let showArrows = false // if edge directions are shown on graph, showArrows=true
+  let showArrows = true // if edge directions are shown on graph, showArrows=true
   let showNeighbors = false // if user is allowed to mouseover node to begin search for OUTWARD-BOUND ONLY neighbours 2 degrees away, showNeighours=true
   let showShortestPath = false // if user is allowed to click on any node to begin SP search, showShortestPath = true (this flag helps to differentiate from click-to-drag event)
   let showSingleNodes = true // to show/hide on screen nodes with no connections
@@ -99,9 +138,9 @@ export default function ForceGraph (
     nodeDegrees[node.id] = 0
   })
 
+  // Sizes of the nodes weighted by the number of links going into and out of that node
   showEle.links.forEach((link) => {
     nodeDegrees[link.source]++
-    // Sizes of the nodes weighted by the number of links going to that node.
     nodeDegrees[link.target]++
   })
 
@@ -111,48 +150,40 @@ export default function ForceGraph (
     .range([6, 24])
     .clamp(true)
 
-  /// //////////////// Set up initial  DOM elements on screen ///////////////////
-  const container =  d3.select(containerSelector)
+  const linkWidthScale = d3
+    .scaleSqrt()
+    .domain(d3.extent(showEle.links, (d) => d[linkStyles.strokeWidth] || 1))
+    .range([1, 3])
+    .clamp(true)
+
+  const categories = [...new Set(showEle.nodes.map((d) => d[nodeGroup]))]
+  const colorScale = d3.scaleOrdinal().domain(categories).range(colors)
+
+  /// ///////////////// Set up initial  DOM elements on screen ///////////////////
+  const container = d3.select(containerSelector)
 
   for (const prop in containerStyles) {
     container.style(prop, containerStyles[prop])
   }
 
   // Create a container for tooltip that is only visible on mouseover of a node
-  const tooltipDiv = container.append('div')
-    .attr('class', 'tooltip')
-    .style('visibility', 'hidden')
+  const tooltipDiv = container.append('div').attr('class', 'tooltip').style('visibility', 'hidden')
 
   for (const prop in tooltip.styles) {
     tooltipDiv.style(prop, tooltip.styles[prop])
   }
 
   // Create a container to show / track clicked node selection to find shortest path
-  const message = container.append('div')
-    .attr('class', 'message')
-    .style('position', 'absolute')
-    .style('top', '90px')
-    .style('left', '50%')
-    .style('transform', 'translate(-50%, -50%)')
-    .style('text-align', 'center')
-    .style('visibility', 'hidden')
+  const message = container.append('div').attr('class', 'message').style('position', 'absolute').style('top', '90px').style('left', '50%').style('transform', 'translate(-50%, -50%)').style('text-align', 'center').style('visibility', 'hidden')
 
-  message.append('div')
-    .attr('class', 'clickedNodes-1')
-    .style('padding', '0px')
-    .style('font-size', '14px')
+  message.append('div').attr('class', 'clickedNodes-1').style('padding', '2px').style('font-size', '14px')
 
-  message.append('div')
-    .attr('class', 'clickedNodes-2')
-    .style('padding', '0px')
-    .style('font-size', '14px')
+  message.append('div').attr('class', 'clickedNodes-2').style('padding', '2px').style('font-size', '14px')
 
-  message.append('div')
-    .attr('class', 'shortestPath-status')
-    .style('padding', '0px')
-    .style('font-size', '12px')
+  message.append('div').attr('class', 'shortestPath-status').style('padding', '2px').style('font-size', '12px')
 
-  message.append('div')
+  message
+    .append('div')
     .attr('class', 'clickedNodes-reset')
     .style('text-decoration', 'underline')
     .style('pointer-events', 'auto')
@@ -163,14 +194,53 @@ export default function ForceGraph (
     })
 
   // Create a container for the graph
-  const svg = container.append('svg')
+  const svg = container
+    .append('svg')
     .attr('width', width)
     .attr('height', height)
     .attr('viewBox', [-width / 2, -height / 2, width, height])
     .attr('style', 'max-width: 100%; height: auto; pointer-events: auto;')
 
   // Create and store arrowheads that will be used when the lines are rendered later
-  svg.append('defs').append('marker').attr('id', 'arrowhead').attr('viewBox', '-0 -5 10 10').attr('refX', 0).attr('refY', 0).attr('orient', 'auto').attr('markerWidth', 5).attr('markerHeight', 5).attr('xoverflow', 'visible').append('svg:path').attr('d', 'M 0,-5 L 10 ,0 L 0,5').attr('fill', linkStroke).style('stroke', 'none')
+  svg.append('defs').append('marker').attr('id', 'arrowhead').attr('viewBox', '-0 -6 12 12').attr('refX', 0).attr('refY', 0).attr('orient', 'auto').attr('markerWidth', 6).attr('markerHeight', 6).attr('xoverflow', 'visible').append('svg:path').attr('d', 'M 0,-6 L 12 ,0 L 0,6').attr('fill', linkStyles.stroke).style('stroke', 'none')
+
+  colors.forEach((color) => {
+    if (!linkStyles.stroke) {
+      svg
+        .append('defs')
+        .append('marker')
+        .attr('id', 'arrowhead-' + color)
+        .attr('viewBox', '-0 -5 10 10')
+        .attr('refX', 0)
+        .attr('refY', 0)
+        .attr('orient', 'auto')
+        .attr('markerWidth', 5)
+        .attr('markerHeight', 5)
+        .attr('xoverflow', 'visible')
+        .append('svg:path')
+        .attr('d', 'M 0,-5 L 10 ,0 L 0,5')
+        .attr('fill', color)
+        .style('stroke', 'none')
+    }
+
+    if (nodeStyles.type === 'gradient') {
+      const radialGradient = svg
+        .append('defs')
+        .append('radialGradient')
+        .attr('id', 'radial-gradient-' + color)
+        .attr('cx', '50%') // The x-center of the gradient
+        .attr('cy', '50%') // The y-center of the gradient
+        .attr('r', '50%') // The radius of the gradient
+
+      // Add colors to make the gradient give a faux 3d effect
+      radialGradient.append('stop').attr('offset', '0%').attr('stop-color', color)
+
+      radialGradient.append('stop').attr('offset', '90%').attr('stop-color', containerStyles['background-color'])
+    }
+  })
+
+  // Create clip-path for image icons
+  // svg.append('defs').selectAll('clipPath').data(showEle.nodes).join('clipPath').attr('id', (d) => d.id + '-clip').append('circle').attr('r', (d) => d.radius);
 
   const g = svg.append('g')
 
@@ -181,10 +251,71 @@ export default function ForceGraph (
   const nodeG = g.append('g').attr('class', 'nodes')
 
   const textG = g.append('g').attr('class', 'labels')
+  /// ////////////////////////////////////////////////////////////////////////////
 
-  /// ///////////////////////////////////////////////////////////////////////////
+  /// /////////////////////////// Create a legend ////////////////////////////////
+  const legendWidth = 350
+  const legendHeight = 185
+  const legend = g
+    .append('g')
+    .attr('class', 'legend')
+    .attr('transform', (d, i) => `translate(${width / 2 - legendWidth}, ${height / 2 - legendHeight})`)
 
-  /// //////////////////////// add zoom capabilities ////////////////////////////
+  legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles['background-color']).attr('stroke', containerStyles.color).attr('width', legendWidth).attr('height', legendHeight)
+
+  legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles.color).attr('stroke', containerStyles['background-color']).attr('width', 80).attr('height', 30)
+
+  legend.append('text').attr('x', -10).attr('y', 0).attr('fill', containerStyles['background-color']).text('LEGEND')
+
+  const legendRadius = legend
+    .selectAll('.legendCircle')
+    .data(nodeRadiusScale.range())
+    .enter()
+    .append('g')
+    .attr('class', 'legendCircle')
+    .attr('transform', (d, i) => `translate(170, ${d + 40})`)
+
+  legendRadius
+    .append('circle')
+    .attr('r', (d) => d)
+    .style('stroke', containerStyles.color)
+    .style('fill', 'none')
+
+  legendRadius
+    .append('text')
+    .attr('x', 30)
+    .attr('y', (d) => d)
+    .attr('fill', containerStyles.color)
+    .text((d) => d)
+
+  legend.append('text').attr('x', 150).attr('y', 25).attr('font-size', '10px').attr('fill', containerStyles.color).text('Number of connections')
+
+  const legendItems = legend
+    .selectAll('.legend-item')
+    .data(colors)
+    .enter()
+    .append('g')
+    .attr('class', 'legend-item')
+    .attr('transform', (d, i) => `translate(0, ${(i + 1) * 20})`)
+
+  legendItems
+    .append('rect')
+    .attr('width', 15)
+    .attr('height', 15)
+    .attr('fill', (d) => d)
+
+  legendItems
+    .append('text')
+    .attr('x', 25)
+    .attr('y', 8)
+    .attr('alignment-baseline', 'middle')
+    .text((d, i) => categories[i])
+    .style('font-size', '12px')
+    .style('fill', containerStyles.color)
+
+  /// ////////////////////////////////////////////////////////////////////////////
+
+  /// ///////////////////////// add zoom capabilities ////////////////////////////
   const zoomHandler = d3.zoom().on('zoom', function (event) {
     g.attr('transform', event.transform)
     // if (clicked || searched) return;
@@ -199,19 +330,18 @@ export default function ForceGraph (
   })
 
   svg.call(zoomHandler)
-  /// ///////////////////////////////////////////////////////////////////////////
+  /// ////////////////////////////////////////////////////////////////////////////
+
+  /// ///////////////////// SIMULATION-RELATED FUNCTIONS /////////////////////////
   const simulation = d3.forceSimulation()
 
   update()
 
-  /// ///////////////////////////////////////////////////////////////////////////
-
-  /// //////////////////// SIMULATION-RELATED FUNCTIONS /////////////////////////
   function update () {
     // PRECAUTIONARY ACTION: REMOVE DUPLICATE LINKS
     const uniqueLinks = []
     const uniqueLinksSet = new Set()
-    showEle.links.forEach((link) => {
+    showEle.links.forEach((link, i) => {
       if (Object.keys(link).length === 0) return
       const sourceID = link.source.id ? link.source.id : link.source
       const targetID = link.target.id ? link.target.id : link.target
@@ -222,41 +352,34 @@ export default function ForceGraph (
       }
     })
     showEle.links = uniqueLinks
-    console.log(showEle)
 
-    // Set up accessors to enable a cleaner way of accessing attributes of each node and edge
-    const T = nodeTitle === undefined ? d3.map(showEle.nodes, (d) => d.NAME).map(intern) : d3.map(showEle.nodes, nodeTitle).map(intern)
-    const G = nodeGroup == null ? null : d3.map(showEle.nodes, nodeGroup).map(intern)
-    const W = typeof linkStrokeWidth !== 'function' ? null : d3.map(showEle.links, linkStrokeWidth)
-    const L = typeof linkStroke !== 'function' ? null : d3.map(showEle.links, linkStroke)
-    if (G && nodeGroups === undefined) nodeGroups = d3.sort(G)
-    const color = nodeGroup == null ? null : d3.scaleOrdinal(nodeGroups, colors)
-
-    showEle.nodes.forEach((n) => {
+    showEle.nodes.forEach((n, i) => {
       n.linkCnt = nodeDegrees[n.id] || 0
-      let radius = nodeRadiusScale(n.linkCnt)
-      let substrings = splitLongText(n.NAME, 30)
+      const radius = nodeRadiusScale(n.linkCnt)
+      const substrings = splitLongText(n.id, maxLineLength)
 
-      let texts = []
-      substrings.map(string => {
-        let text = getTextSize(string, Math.max(8, radius) + 'px', containerStyles['font-family'])
-        texts.push({text: string, width: text.width, height: text.height})
+      const texts = []
+      substrings.forEach((string) => {
+        const text = getTextSize(string, Math.max(8, radius) + 'px', containerStyles['font-family'])
+        texts.push({ text: string, width: text.width, height: text.height })
       })
 
-      //n.width = n.NAME.length * radius + radius
-      //n.height = radius * 2
-      n.width = d3.max(texts, d => d.width) + (radius * 2)
-      n.height = d3.max(texts, d => d.height) * substrings.length + radius
+      n.width = d3.max(texts, (d) => d.width) + radius * 2
+      n.height = d3.max(texts, (d) => d.height) * substrings.length + radius
       n.radius = radius
+      n.color = nodeStyles.fill || colorScale(n[nodeGroup])
+    })
+
+    showEle.links.forEach((l, i) => {
+      if (typeof linkStyles.strokeWidth === 'string' && !linkStyles.strokeWidth.includes('px')) {
+        const W = d3.map(showEle.links, (d) => d[linkStyles.strokeWidth])
+        l.strokeWidth = linkWidthScale(W[i])
+      } else {
+        l.strokeWidth = linkStyles.strokeWidth
+      }
     })
 
     const graph = initGraphologyGraph(showEle.nodes, showEle.links)
-
-    // Create a quadtree for efficient collision detection
-    const quadtree = d3.quadtree()
-      .x(function(d) { return d.x; })
-      .y(function(d) { return d.y; })
-      .addAll(showEle.nodes);
 
     const clickNodeForShortestPath = (dd) => {
       if (clickedNodes.length < 2) {
@@ -294,7 +417,7 @@ export default function ForceGraph (
       clickedNN = true
     }
 
-    /// /////////////////////// Run simulation on data ///////////////////////////
+    /// //////////////////////// Run simulation on data ///////////////////////////
     simulation
       .force(
         'link',
@@ -318,21 +441,73 @@ export default function ForceGraph (
       //     .radius((d) => d.radius)
       //     .iterations(3)
       // )
-      .force("collide", forceCollide())
+      .force('collide', forceCollide())
       // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
       .force('charge', d3.forceManyBody().strength(-600))
       .force('cluster', forceCluster().strength(0.15))
 
-    // Restart the force layout
     simulation.nodes(showEle.nodes).force('link').links(showEle.links)
 
     simulation.alphaTarget(0.5).restart() // increase alphaDecay value to cool down a graph more quickly
 
-    simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())));
+    simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())))
+    // simulation.on('tick', ticked)
 
-    //simulation.on('tick', ticked)
+    // // Calculate cluster dimensions
+    // const clusters = d3.groups(showEle.nodes, (d) => d[nodeGroup])
+    // const clusterBoxes = []
+    // clusters.forEach((c) => {
+    //   const textDimensions = getTextSize(c[0], '14px', containerStyles['font-family'])
+    //   const radius = d3.max(c[1].map((d) => d.radius))
+    //   const padding = 10
+    //   const minX = d3.min(c[1].map((d) => d.x)) - radius - padding
+    //   const maxX = d3.max(c[1].map((d) => d.x)) + radius + padding
+    //   const minY = d3.min(c[1].map((d) => d.y)) - radius - padding
+    //   const maxY = d3.max(c[1].map((d) => d.y)) + radius + padding
+    //   clusterBoxes.push({ minX, maxX, minY, maxY, cluster: c[0], textW: textDimensions.width + 5, textH: textDimensions.height + 5 })
+    // })
 
-    quadtree.addAll(showEle.nodes);
+    // // Update existing cluster rectangles
+    // const updatedClusters = nodeG.selectAll('.cluster').data(clusterBoxes, (d) => d.cluster)
+
+    // updatedClusters.join(
+    //   (enter) => {
+    //     const newCluster = enter
+    //       .append('g')
+    //       .attr('class', 'cluster')
+    //       .attr('opacity', 1)
+    //       .attr('transform', (d) => `translate(${d.minX}, ${d.minY})`)
+    //       .attr('visibility', 'visible')
+
+    //     newCluster
+    //       .append('rect')
+    //       .attr('fill', 'none')
+    //       .attr('stroke', (d) => colorScale(d.cluster))
+    //       .attr('stroke-width', '1px')
+    //       .attr('width', (d) => d.maxX - d.minX)
+    //       .attr('height', (d) => d.maxY - d.minY)
+
+    //     newCluster
+    //       .append('rect')
+    //       .attr('y', (d) => -d.textH)
+    //       .attr('fill', (d) => colorScale(d.cluster))
+    //       .attr('stroke', (d) => colorScale(d.cluster))
+    //       .attr('width', (d) => d.textW)
+    //       .attr('height', (d) => d.textH)
+
+    //     newCluster
+    //       .append('text')
+    //       .attr('x', 3)
+    //       .attr('y', -6)
+    //       .attr('font-size', '14px')
+    //       .attr('fill', 'white')
+    //       .text((d) => d.cluster.toUpperCase())
+
+    //     return newCluster
+    //   },
+    //   (update) => update,
+    //   (exit) => exit.remove()
+    // )
 
     // Update existing links
     const link = linkG
@@ -343,24 +518,34 @@ export default function ForceGraph (
           enter
             .append('path')
             .attr('class', 'link')
-            .attr('id', (d) => d.source.id + '_' + d.target.id),
+            .attr('id', (d) => d.source.id + '_' + d.target.id)
+            .on('mouseover', function (event, dd) {
+              updateLinkTooltip(event, dd) // show tooltip on mouseover any link
+            })
+            .on('mouseleave', function () {
+              tooltipDiv.style('visibility', 'hidden')
+            }),
 
         (update) => update,
         (exit) => exit.remove()
       )
-      .attr('stroke', linkStroke)
-      .attr('stroke-width', linkStrokeWidth)
-      .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStrokeOpacity))
-      .attr('d', (d) => linkType === 'arc' ? generateArc(d, 1) : generatePath(d))
+      .attr('pointer-events', 'auto')
+      .attr('cursor', 'pointer')
+      .attr('fill', 'none')
+      .attr('stroke', (d) => linkStyles.stroke || colorScale(d.source[nodeGroup]))
+      .attr('stroke-width', (d) => d.strokeWidth)
+      .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
+      .attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
 
     if (showArrows) {
-      linkG.selectAll('path.link').attr('marker-mid', 'url(#arrowhead)') // render arrow heads in the middle of line
+      if (!linkStyles.stroke) {
+        linkG.selectAll('path.link').attr('marker-end', (d) => `url(#arrowhead-${d.source.color})`) // render arrow heads in the middle of line
+      } else {
+        linkG.selectAll('path.link').attr('marker-end', 'url(#arrowhead)')
+      }
     }
 
-    if (W) link.attr('stroke-width', (d, i) => W[i])
-    if (L) link.attr('stroke', (d, i) => L[i])
-
-    // Update existing links
+    // Update existing link labels
     const linkTexts = linkTextG
       .selectAll('text.link')
       .data(showEle.links)
@@ -369,21 +554,22 @@ export default function ForceGraph (
           enter
             .append('text')
             .attr('class', 'link')
-            //.attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 10)
-            //.attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
-            .attr("dy", -3)
-            .append("textPath")
-            .attr("xlink:href", function(d, i) { return '#' + d.source.id + '_' + d.target.id })
-            .attr("startOffset", "50%")
+            // .attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 10)
+            // .attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
+            .attr('dy', -3)
+            .append('textPath')
+            .attr('xlink:href', (d, i) => '#' + d.source.id + '_' + d.target.id)
+            .attr('startOffset', '50%')
             .attr('text-anchor', 'middle')
-            .text((d) => d.Relation),
+            .text((d) => d[labelStyles.edge.label]),
 
         (update) => update,
         (exit) => exit.remove()
       )
-      .attr('opacity', 0.4)
-      .attr('fill', linkStroke)
-      .attr('font-size', '6px')
+      .attr('visibility', labelStyles.edge.visibility)
+      .attr('opacity', labelStyles.edge.opacity)
+      .attr('fill', labelStyles.edge.color || labelStyles.color)
+      .attr('font-size', labelStyles.edge['font-size'])
 
     // Update existing nodes
     const updatedNode = nodeG.selectAll('.node').data(showEle.nodes, (d) => d.id)
@@ -427,32 +613,34 @@ export default function ForceGraph (
             }
           })
           .on('dblclick.zoom', null)
-          .on('mouseover', function (event, dd) {
-            updateTooltip(dd) // show tooltip on mouseover any node
-          })
-          .on('mouseleave', function () {
-            tooltipDiv.style('visibility', 'hidden')
-          })
 
         newNode
           .append('circle')
-          .attr('fill', nodeFill)
-          .attr('stroke', nodeStroke)
           .attr('r', (d) => d.radius)
-          .attr('fill-opacity', nodeFillOpacity)
-          .attr('stroke-opacity', nodeStrokeOpacity)
-          .attr('stroke-width', nodeStrokeWidth)
+          .attr('fill', (d) => (nodeStyles.type === 'gradient' ? `url('#radial-gradient-${d.color}')` : d.color))
+          .attr('stroke', (d) => nodeStyles.stroke || d.color)
+          .attr('fill-opacity', nodeStyles.fillOpacity)
+          .attr('stroke-opacity', nodeStyles.type === 'filled' ? nodeStyles.fillOpacity : nodeStyles.strokeOpacity)
+          .attr('stroke-width', nodeStyles.type === 'gradient' ? '0.5px' : nodeStyles.strokeWidth) // it's nicer to have a thin circle stroke for nodes with radial gradient stroke
 
+        // add icon
+        // newNode
+        //   .append('image')
+        //   .attr('href', '')
+        //   .attr('clip-path', (d) => `url(#${d.id}-clip)`)
+        //   .attr('width', (d) => d.radius)
+        //   .attr('height', (d) => d.radius)
+        //   .attr('x', (d) => (d.radius / 2) * -1)
+        //   .attr('y', (d) => (d.radius / 2) * -1);
+
+        // debug view
         // newNode
         //   .append('rect')
-        //   .attr('fill', nodeFill)
-        //   .attr('stroke', nodeStroke)
+        //   .attr('fill', 'white')
         //   .attr('x', (d) => -d.radius)
         //   .attr('y', (d) => -d.radius)
         //   .attr('width', (d) => d.width)
         //   .attr('height', (d) => d.height)
-
-        if (G) newNode.select('circle').attr('fill', (d, i) => color(G[i]))
 
         return newNode
       },
@@ -460,7 +648,7 @@ export default function ForceGraph (
       (exit) => exit.remove()
     )
 
-    // Update existing text elements
+    // Update existing node labels
     const updatedText = textG.selectAll('.label').data(showEle.nodes, (d) => d.id)
 
     updatedText.join(
@@ -470,27 +658,39 @@ export default function ForceGraph (
           .attr('class', 'label')
           .attr('opacity', 1)
           .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
-          .attr('visibility', labelVisibility)
+          .attr('visibility', labelStyles.visibility)
+
+        // if(labelBorder){
+        // newText
+        // .append('rect')
+        // .attr('fill', containerStyles['background-color'])
+        // .attr('stroke', labelStyles.color || containerStyles['color'])
+        // .attr('x',(d) => d.radius + 2)
+        // .attr('y',(d) => -d.radius - 2)
+        // .attr('width', (d) => d.width - d.radius + 2)
+        // .attr('height', (d) => d.height - 2)
+        // }
 
         const text = newText
           .append('text')
-          .attr('transform', (d) => `translate(${nodeRadiusScale(d.linkCnt) + 2}, 0)`)
-          //.attr('x', (d) => nodeRadiusScale(d.linkCnt) + 2) // position label next to node without overlap
+          .attr('transform', (d) => `translate(${nodeRadiusScale(d.linkCnt) + 5}, 0)`) // position label next to node without overlap
+          // .attr('transform', (d) => `translate(${(-d.width + (d.radius * 2))/ 2}, ${nodeRadiusScale(d.linkCnt) + 8})`)  // position label below node without overlap
+          .attr('fill', labelStyles.color || containerStyles.color)
+          .attr('stroke', containerStyles['background-color'])
+          .attr('stroke-width', '0.3px')
+          .attr('font-size', (d) => Math.max(8, nodeRadiusScale(d.linkCnt))) // label size is proportionate to node size
+          .attr('font-weight', labelStyles.fontWeight)
           .attr('dominant-baseline', 'middle')
           .attr('text-anchor', 'start')
-          .attr('fill', labelColor)
-          .attr('stroke', 'black')
-          .attr('stroke-width', 0.25)
-          .attr('font-size', (d) => Math.max(8, nodeRadiusScale(d.linkCnt))) // label size is proportionate to node size
-          .attr('font-weight', labelFontWeight)
-          //.text((d, i) => T[i])
 
-          text.selectAll("tspan")
-            .data((d) => splitLongText(d.NAME, 30)) // max line length is 30
-            .enter().append("tspan")
-            .attr("x", 0)
-            .attr("y", (d,i) => 8 * i)
-            .text((d) => d);
+        text
+          .selectAll('tspan')
+          .data((d) => splitLongText(d[labelStyles.label], maxLineLength)) // max line length is 30
+          .enter()
+          .append('tspan')
+          .attr('x', 0)
+          .attr('y', (d, i) => 8 * i)
+          .text((d) => d)
 
         return newText
       },
@@ -500,8 +700,17 @@ export default function ForceGraph (
 
     ticked()
 
+    nodeG
+      .selectAll('.node')
+      .on('mouseover', function (event, dd) {
+        updateTooltip(dd) // show tooltip on mouseover any node
+      })
+      .on('mouseleave', function () {
+        tooltipDiv.style('visibility', 'hidden')
+      })
+
     function ticked () {
-      link.attr('d', (d) => linkType === 'arc' ? generateArc(d, 1) : generatePath(d))
+      link.attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
       nodeG.selectAll('.node').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       textG.selectAll('.label').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       linkTexts.attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 6).attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
@@ -514,18 +723,18 @@ export default function ForceGraph (
         d.fy = d.y
         simulation.on('tick', ticked)
       }
-  
+
       function dragged (event, d) {
         d.fx = event.x
         d.fy = event.y
       }
-  
+
       function dragended (event, d) {
         if (!event.active) simulation.alphaTarget(0)
         d.fx = null
         d.fy = null
       }
-      
+
       return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended)
     }
   }
@@ -547,10 +756,10 @@ export default function ForceGraph (
     let strength = 0.8
     let nodes
     function force (alpha) {
-      const centroids = d3.rollup(nodes, centroid, nodeGroup)
+      const centroids = d3.rollup(nodes, centroid, (d) => d[nodeGroup])
       const l = alpha * strength
       for (const d of nodes) {
-        const { x: cx, y: cy } = centroids.get(d.CATEGORY)
+        const { x: cx, y: cy } = centroids.get(d[nodeGroup])
         d.vx -= (d.x - cx) * l
         d.vy -= (d.y - cy) * l
       }
@@ -562,103 +771,61 @@ export default function ForceGraph (
     return force
   }
 
-  function forceCollide() {
-    let nodes;
-  
-    function force(alpha) {
-      const quad = d3.quadtree(nodes, d => d.x, d => d.y);
-      const padding = 10
+  function forceCollide () {
+    let nodes
+
+    function force (alpha) {
+      const quad = d3.quadtree(
+        nodes,
+        (d) => d.x,
+        (d) => d.y
+      )
       for (const d of nodes) {
         quad.visit((q, x1, y1, x2, y2) => {
-          let updated = false;
-          if(q.data && q.data !== d){
-            let x = (d.x - d.radius) - (q.data.x - q.data.radius),
-            y = (d.y - d.radius) - (q.data.y - q.data.radius),
-            xSpacing = padding + (q.data.width + d.width) / 2,
-            ySpacing = padding + (q.data.height + d.height) / 2,
-            absX = Math.abs(x),
-            absY = Math.abs(y),
-            l,
-            lx,
-            ly;
-  
+          let updated = false
+          if (q.data && q.data !== d) {
+            let x = d.x - d.radius - (q.data.x - q.data.radius)
+            let y = d.y - d.radius - (q.data.y - q.data.radius)
+            const xSpacing = 20 + (q.data.width + d.width) / 2
+            const ySpacing = 14 + (q.data.height + d.height) / 2
+            const absX = Math.abs(x)
+            const absY = Math.abs(y)
+            let l
+            let lx
+            let ly
+
             if (absX < xSpacing && absY < ySpacing) {
-              l = Math.sqrt(x * x + y * y);
-  
-              lx = (absX - xSpacing) / l;
-              ly = (absY - ySpacing) / l;
-  
+              l = Math.sqrt(x * x + y * y)
+
+              lx = (absX - xSpacing) / l
+              ly = (absY - ySpacing) / l
+
               // the one that's barely within the bounds probably triggered the collision
               if (Math.abs(lx) > Math.abs(ly)) {
-                lx = 0;
+                lx = 0
               } else {
-                ly = 0;
+                ly = 0
               }
-              d.x -= x *= lx;
-              d.y -= y *= ly;
-              q.data.x += x;
-              q.data.y += y;
-  
-              updated = true;
+              d.x -= x *= lx
+              d.y -= y *= ly
+              q.data.x += x
+              q.data.y += y
+
+              updated = true
             }
           }
-          return updated;
-        });
+          return updated
+        })
       }
     }
-  
-    force.initialize = _ => nodes = _;
-  
-    return force;
+
+    force.initialize = (_) => (nodes = _)
+
+    return force
   }
+  /// ////////////////////////////////////////////////////////////////////////////
 
-  // Function to split long text into lines
-  function splitLongText(text, maxLineLength) {
-    var words = text.split(' ');
-    var lines = [];
-    var currentLine = '';
-
-    words.forEach(function(word) {
-      if (currentLine.length + word.length <= maxLineLength) {
-        currentLine += word + ' ';
-      } else {
-        lines.push(currentLine.trim());
-        currentLine = word + ' ';
-      }
-    });
-
-    if (currentLine.trim() !== '') {
-      lines.push(currentLine.trim());
-    }
-
-    return lines;
-  }
-
-  function getTextSize(text, fontSize, fontFamily) {
-    // Create a temporary span element
-    var span = document.createElement("span");
-    span.textContent = text;
-  
-    // Set the font for the text measurement
-    span.style.fontSize = fontSize;
-    span.style.fontFamily = fontFamily;
-  
-    // Append the span to the document body
-    document.body.appendChild(span);
-  
-    // Measure the width and height of the text
-    var width = span.offsetWidth;
-    var height = span.offsetHeight;
-  
-    // Clean up the temporary span
-    document.body.removeChild(span);
-  
-    return { width: width, height: height };
-  }
-  
-  /// ///////////////////////////////////////////////////////////////////////////
-
-  /// //////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
+  /// ///////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
   function highlightNode (dd) {
     nodeG.selectAll('.node').attr('opacity', (d) => (d.id === dd ? 1 : 0.2))
     linkG.selectAll('path.link').attr('opacity', 0.1)
@@ -676,10 +843,10 @@ export default function ForceGraph (
   // Un-highlight all elements and hide tooltip
   function reset () {
     nodeG.selectAll('.node').attr('opacity', 1)
-    nodeG.selectAll('.node').selectAll('circle').attr('stroke', nodeStroke).attr('stroke-width', nodeStrokeWidth)
-    linkG.selectAll('path.link').attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStrokeOpacity))
+    nodeG.selectAll('.node').selectAll('circle').attr('stroke', nodeStyles.stroke).attr('stroke-width', nodeStyles.strokeWidth)
+    linkG.selectAll('path.link').attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
     linkTextG.selectAll('text.link').attr('opacity', 0.2)
-    textG.selectAll('.label').attr('visibility', labelVisibility)
+    textG.selectAll('.label').attr('visibility', labelStyles.visibility)
 
     tooltipDiv.style('visibility', 'hidden')
 
@@ -737,30 +904,52 @@ export default function ForceGraph (
     highlightConnections(connectedNodes)
   }
 
-  function updateTooltip(d) {
-
+  function updateTooltip (d) {
     tooltip.custom(tooltipDiv, d)
 
-    tooltipDiv
-      .style('visibility', 'visible')
-      .style('left', d.x + width / 2 + 20 + 'px')
-      .style('top', d.y + height / 2 - 20 + 'px')
-
-    if(!tooltipDiv.innerHTML){
+    if (!tooltipDiv.innerHTML) {
       const content = []
-      content.push(`<div><h3>${d.id}</h3></div>`) // tooltip title
-      
-      for (const [key, value] of Object.entries(d)) {
+      content.push(`<div style='padding-bottom: 4px; font-size: 18px; font-weight: bold; color: ${d.color}'>${d.id}</div>`) // tooltip title
+      const keys = [nodeGroup, 'linkCnt']
+      keys.forEach((key) => {
         // iterate over each attribute object and render
-        if (key === 'fx' || key === 'fy' || key === 'vx' || key === 'vy' || key === 'x' || key === 'y' || key === 'index' || key === 'id') continue
-        content.push(`<div><b>${key}: </b><span>${value}</span></div>`)
-      }
+        content.push(`<div><b>${key}: </b><span>${d[key]}</span></div>`)
+      })
       let contentStr = ''
       content.map((d) => (contentStr += d))
-  
+
       tooltipDiv.html(`${contentStr}`)
     }
 
+    // const bbox = d3.select(".tooltip").node().getBoundingClientRect()
+
+    tooltipDiv
+      .style('visibility', 'visible')
+      .style('left', d.x + width / 2 + d.radius * 2 + 5 + 'px')
+      .style('top', d.y + height / 2 + 'px')
+  }
+
+  function updateLinkTooltip (event, d) {
+    tooltip.custom(tooltipDiv, d)
+
+    if (!tooltipDiv.innerHTML) {
+      const content = []
+      content.push(`<div style='padding-bottom: 4px; font-size: 18px; font-weight: bold;'><span style='color: ${d.source.color}'>${d.source.id}</span> -> <span style='color: ${d.target.color}'>${d.target.id}</span></div>`) // tooltip title
+      const keys = ['Description', 'Relation', 'Relevance', 'Object', 'Subject']
+      keys.forEach((key) => {
+        // iterate over each attribute object and render
+        content.push(`<div><b>${key}: </b><span>${d[key]}</span></div>`)
+      })
+      let contentStr = ''
+      content.map((d) => (contentStr += d))
+
+      tooltipDiv.html(`${contentStr}`)
+    }
+
+    tooltipDiv
+      .style('visibility', 'visible')
+      .style('left', event.x + 10 + 'px')
+      .style('top', event.y + 'px')
   }
 
   // Function to zoom to a specific node
@@ -806,7 +995,7 @@ export default function ForceGraph (
 
     return graph
   }
-  ///////////////////////////////////////////////////////////////////
+  /// /////////////////////////////////////////////////////////////////
 
   function searchHandler (item) {
     searched = true
@@ -826,9 +1015,9 @@ export default function ForceGraph (
       case 'direction': // SHOW DIRECTION
         showArrows = !showArrows
         if (showArrows) {
-          linkG.selectAll('path.link').attr('marker-mid', 'url(#arrowhead)')
+          linkG.selectAll('path.link').attr('marker-end', 'url(#arrowhead)')
         } else {
-          linkG.selectAll('path.link').attr('marker-mid', null)
+          linkG.selectAll('path.link').attr('marker-end', null)
         }
         break
       case 'nearest_neighbour': // SHOW NEAREST NEIGHBOUR
@@ -867,7 +1056,7 @@ export default function ForceGraph (
             .attr('visibility', 'hidden')
         } else {
           nodeG.selectAll('.node').attr('opacity', 1)
-          textG.selectAll('.label').attr('visibility', labelVisibility)
+          textG.selectAll('.label').attr('visibility', labelStyles.visibility)
         }
         break
       case 'reset':
