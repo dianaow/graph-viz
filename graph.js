@@ -60,6 +60,8 @@ export default function ForceGraph (
     containerStyles = defaultContainerStyles,
     tooltip = {
       styles: {
+        display: 'block',
+        position: 'absolute',
         width: 'auto',
         height: 'auto',
         padding: '8px',
@@ -70,8 +72,6 @@ export default function ForceGraph (
       },
       custom: function (tooltipEl, d) {
         const tooltip = tooltipEl.node()
-        tooltip.style.display = 'block'
-        tooltip.style.position = 'absolute'
       }
     }
   } = {}
@@ -157,6 +157,7 @@ export default function ForceGraph (
     .clamp(true)
 
   const categories = [...new Set(showEle.nodes.map((d) => d[nodeGroup]))]
+
   const colorScale = d3.scaleOrdinal().domain(categories).range(colors)
 
   /// ///////////////// Set up initial  DOM elements on screen ///////////////////
@@ -255,7 +256,7 @@ export default function ForceGraph (
 
   /// /////////////////////////// Create a legend ////////////////////////////////
   const legendWidth = 350
-  const legendHeight = 185
+  const legendHeight = categories.length * 30
   const legend = g
     .append('g')
     .attr('class', 'legend')
@@ -292,7 +293,7 @@ export default function ForceGraph (
 
   const legendItems = legend
     .selectAll('.legend-item')
-    .data(colors)
+    .data(categories)
     .enter()
     .append('g')
     .attr('class', 'legend-item')
@@ -302,14 +303,14 @@ export default function ForceGraph (
     .append('rect')
     .attr('width', 15)
     .attr('height', 15)
-    .attr('fill', (d) => d)
+    .attr('fill', (d) => colorScale(d))
 
   legendItems
     .append('text')
     .attr('x', 25)
     .attr('y', 8)
     .attr('alignment-baseline', 'middle')
-    .text((d, i) => categories[i])
+    .text((d, i) => d)
     .style('font-size', '12px')
     .style('fill', containerStyles.color)
 
@@ -333,11 +334,13 @@ export default function ForceGraph (
   /// ////////////////////////////////////////////////////////////////////////////
 
   /// ///////////////////// SIMULATION-RELATED FUNCTIONS /////////////////////////
-  const simulation = d3.forceSimulation()
-
   update()
 
-  function update () {
+  function update (nodes, links) {
+
+    if(nodes) showEle.nodes = nodes
+    if(links) showEle.links = links 
+
     // PRECAUTIONARY ACTION: REMOVE DUPLICATE LINKS
     const uniqueLinks = []
     const uniqueLinksSet = new Set()
@@ -418,7 +421,7 @@ export default function ForceGraph (
     }
 
     /// //////////////////////// Run simulation on data ///////////////////////////
-    simulation
+    const simulation = d3.forceSimulation()
       .force(
         'link',
         d3
@@ -673,12 +676,12 @@ export default function ForceGraph (
 
         const text = newText
           .append('text')
-          .attr('transform', (d) => `translate(${nodeRadiusScale(d.linkCnt) + 5}, 0)`) // position label next to node without overlap
-          // .attr('transform', (d) => `translate(${(-d.width + (d.radius * 2))/ 2}, ${nodeRadiusScale(d.linkCnt) + 8})`)  // position label below node without overlap
+          .attr('transform', (d) => `translate(${d.radius + 5}, 0)`) // position label next to node without overlap
+          // .attr('transform', (d) => `translate(${(-d.width + (d.radius * 2))/ 2}, ${d.radius + 8})`)  // position label below node without overlap
           .attr('fill', labelStyles.color || containerStyles.color)
           .attr('stroke', containerStyles['background-color'])
           .attr('stroke-width', '0.3px')
-          .attr('font-size', (d) => Math.max(8, nodeRadiusScale(d.linkCnt))) // label size is proportionate to node size
+          .attr('font-size', (d) => Math.max(8, d.radius)) // label size is proportionate to node size
           .attr('font-weight', labelStyles.fontWeight)
           .attr('dominant-baseline', 'middle')
           .attr('text-anchor', 'start')
@@ -744,7 +747,7 @@ export default function ForceGraph (
     let y = 0
     let z = 0
     for (const d of nodes) {
-      const k = nodeRadiusScale(d.linkCnt) ** 2
+      const k = d.radius ** 2
       x += d.x * k
       y += d.y * k
       z += k
@@ -823,9 +826,9 @@ export default function ForceGraph (
 
     return force
   }
-  /// ////////////////////////////////////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////////////////////////
 
-  /// ///////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
+  ///////////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
   function highlightNode (dd) {
     nodeG.selectAll('.node').attr('opacity', (d) => (d.id === dd ? 1 : 0.2))
     linkG.selectAll('path.link').attr('opacity', 0.1)
@@ -1077,12 +1080,33 @@ export default function ForceGraph (
   }
 
   return {
-    on: function (eventName, item) {
-      if (eventName === 'search') {
-        searchHandler(item)
-      } else if (eventName === 'action') {
-        buttonClickHandler(item)
-      }
+    /* public data update  method */
+    update: ({nodes, links}) => {
+      nodes = d3.map(nodes, (d, i) => ({
+        id: N[i],
+        ...d
+      }))
+      links = d3.map(links, (d, i) => ({
+        source: LS[i],
+        target: LT[i],
+        ...d
+      }))
+      update(nodes, links)
+    },
+    /* public methods that (correspond to required functionality) */
+    search: (searchString) => {
+      searchHandler (searchString)
+    },
+    filter: (options) => {
+    },
+    /* event subscription method, provides interface for graph specific events e.g. click on node */
+    on: ({eventName, callback}) => {
+    },
+    showNearestNeighbour: () => {
+      buttonClickHandler ('nearest_neighbour')
+    },
+    showShortestPath: () => {
+      buttonClickHandler ('shortest_path')
     }
   }
 }
