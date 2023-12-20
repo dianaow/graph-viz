@@ -331,15 +331,73 @@ export default function ForceGraph (
   })
 
   svg.call(zoomHandler)
-  /// ////////////////////////////////////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////////////////////////
 
-  /// ///////////////////// SIMULATION-RELATED FUNCTIONS /////////////////////////
-  update()
+  ///////////////////////// SIMULATION-RELATED FUNCTIONS /////////////////////////
+  const simulation = d3.forceSimulation()
+  .force(
+    'link',
+    d3
+      .forceLink()
+      .id((d) => d.id)
+      .distance(100)
+  )
+  .force(
+    'x',
+    d3.forceX((d) => d.x)
+  )
+  .force(
+    'y',
+    d3.forceY((d) => d.y)
+  )
+  // .force(
+  //   'collide',
+  //   d3
+  //     .forceCollide()
+  //     .radius((d) => d.radius)
+  //     .iterations(3)
+  // )
+  .force('collide', forceCollide())
+  // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
+  .force('charge', d3.forceManyBody().strength(-600))
+  .force('cluster', forceCluster().strength(0.15))
 
-  function update (nodes, links) {
+  updateAttributes(showEle.nodes, showEle.links)
+  updateLayout()
 
-    if(nodes) showEle.nodes = nodes
-    if(links) showEle.links = links 
+  function updateAttributes(nodes, links) {
+    nodes.forEach((n, i) => {
+      n.linkCnt = nodeDegrees[n.id] || 0
+      const radius = nodeRadiusScale(n.linkCnt)
+      const substrings = splitLongText(n.id, maxLineLength)
+  
+      const texts = []
+      substrings.forEach((string) => {
+        const text = getTextSize(string, Math.max(8, radius) + 'px', containerStyles['font-family'])
+        texts.push({ text: string, width: text.width, height: text.height })
+      })
+  
+      n.width = d3.max(texts, (d) => d.width) + radius * 2
+      n.height = d3.max(texts, (d) => d.height) * substrings.length + radius
+      n.radius = radius
+      n.color = nodeStyles.fill || colorScale(n[nodeGroup])
+    })
+  
+    links.forEach((l, i) => {
+      if (typeof linkStyles.strokeWidth === 'string' && !linkStyles.strokeWidth.includes('px')) {
+        const W = d3.map(showEle.links, (d) => d[linkStyles.strokeWidth])
+        l.strokeWidth = linkWidthScale(W[i])
+      } else {
+        l.strokeWidth = linkStyles.strokeWidth
+      }
+    })
+  }
+
+  function updateLayout (nodesToAdd, linksToAdd) {
+
+    if(nodesToAdd && linksToAdd) updateAttributes(nodesToAdd, linksToAdd)
+    if(nodesToAdd && nodesToAdd.length > 0) showEle.nodes = showEle.nodes.concat(nodesToAdd)
+    if(linksToAdd && linksToAdd.length > 0) showEle.links = showEle.links.concat(linksToAdd)
 
     // PRECAUTIONARY ACTION: REMOVE DUPLICATE LINKS
     const uniqueLinks = []
@@ -355,32 +413,6 @@ export default function ForceGraph (
       }
     })
     showEle.links = uniqueLinks
-
-    showEle.nodes.forEach((n, i) => {
-      n.linkCnt = nodeDegrees[n.id] || 0
-      const radius = nodeRadiusScale(n.linkCnt)
-      const substrings = splitLongText(n.id, maxLineLength)
-
-      const texts = []
-      substrings.forEach((string) => {
-        const text = getTextSize(string, Math.max(8, radius) + 'px', containerStyles['font-family'])
-        texts.push({ text: string, width: text.width, height: text.height })
-      })
-
-      n.width = d3.max(texts, (d) => d.width) + radius * 2
-      n.height = d3.max(texts, (d) => d.height) * substrings.length + radius
-      n.radius = radius
-      n.color = nodeStyles.fill || colorScale(n[nodeGroup])
-    })
-
-    showEle.links.forEach((l, i) => {
-      if (typeof linkStyles.strokeWidth === 'string' && !linkStyles.strokeWidth.includes('px')) {
-        const W = d3.map(showEle.links, (d) => d[linkStyles.strokeWidth])
-        l.strokeWidth = linkWidthScale(W[i])
-      } else {
-        l.strokeWidth = linkStyles.strokeWidth
-      }
-    })
 
     const graph = initGraphologyGraph(showEle.nodes, showEle.links)
 
@@ -419,35 +451,6 @@ export default function ForceGraph (
       message.style('visibility', 'visible') // Show RESET message
       clickedNN = true
     }
-
-    /// //////////////////////// Run simulation on data ///////////////////////////
-    const simulation = d3.forceSimulation()
-      .force(
-        'link',
-        d3
-          .forceLink()
-          .id((d) => d.id)
-          .distance(100)
-      )
-      .force(
-        'x',
-        d3.forceX((d) => d.x)
-      )
-      .force(
-        'y',
-        d3.forceY((d) => d.y)
-      )
-      // .force(
-      //   'collide',
-      //   d3
-      //     .forceCollide()
-      //     .radius((d) => d.radius)
-      //     .iterations(3)
-      // )
-      .force('collide', forceCollide())
-      // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
-      .force('charge', d3.forceManyBody().strength(-600))
-      .force('cluster', forceCluster().strength(0.15))
 
     simulation.nodes(showEle.nodes).force('link').links(showEle.links)
 
@@ -522,6 +525,10 @@ export default function ForceGraph (
             .append('path')
             .attr('class', 'link')
             .attr('id', (d) => d.source.id + '_' + d.target.id)
+            .attr('stroke', (d) => linkStyles.stroke || colorScale(d.source[nodeGroup]))
+            .attr('stroke-width', (d) => d.strokeWidth)
+            .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
+            .attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))      
             .on('mouseover', function (event, dd) {
               updateLinkTooltip(event, dd) // show tooltip on mouseover any link
             })
@@ -535,10 +542,6 @@ export default function ForceGraph (
       .attr('pointer-events', 'auto')
       .attr('cursor', 'pointer')
       .attr('fill', 'none')
-      .attr('stroke', (d) => linkStyles.stroke || colorScale(d.source[nodeGroup]))
-      .attr('stroke-width', (d) => d.strokeWidth)
-      .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
-      .attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
 
     if (showArrows) {
       if (!linkStyles.stroke) {
@@ -650,7 +653,7 @@ export default function ForceGraph (
       (update) => update,
       (exit) => exit.remove()
     )
-
+      
     // Update existing node labels
     const updatedText = textG.selectAll('.label').data(showEle.nodes, (d) => d.id)
 
@@ -703,33 +706,32 @@ export default function ForceGraph (
 
     ticked()
 
-    nodeG
-      .selectAll('.node')
-      .on('mouseover', function (event, dd) {
-        updateTooltip(dd) // show tooltip on mouseover any node
-      })
-      .on('mouseleave', function () {
-        tooltipDiv.style('visibility', 'hidden')
-      })
-
     function ticked () {
-      link.attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
+      linkG.selectAll('path.link').attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
       nodeG.selectAll('.node').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       textG.selectAll('.label').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       linkTexts.attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 6).attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
     }
 
+    nodeG.selectAll('.node')
+    .on('mouseover', function (event, dd) {
+      updateTooltip(dd) // show tooltip on mouseover any node
+    })
+    .on('mouseleave', function () {
+      tooltipDiv.style('visibility', 'hidden')
+    })
+    
     function drag (simulation) {
       function dragstarted (event, d) {
-        if (!event.active) simulation.alphaTarget(0.3).restart()
+        if (!event.active) simulation.alphaTarget(0.1).restart()
         d.fx = d.x
         d.fy = d.y
-        simulation.on('tick', ticked)
       }
 
       function dragged (event, d) {
         d.fx = event.x
         d.fy = event.y
+        simulation.on('tick', ticked)
       }
 
       function dragended (event, d) {
@@ -1082,6 +1084,9 @@ export default function ForceGraph (
   return {
     /* public data update  method */
     update: ({nodes, links}) => {
+      const N = d3.map(nodes, (d) => d[nodeId]).map(intern)
+      const LS = d3.map(links, (d) => d[sourceId]).map(intern)
+      const LT = d3.map(links, (d) => d[targetId]).map(intern)
       nodes = d3.map(nodes, (d, i) => ({
         id: N[i],
         ...d
@@ -1091,7 +1096,7 @@ export default function ForceGraph (
         target: LT[i],
         ...d
       }))
-      update(nodes, links)
+      updateLayout(nodes, links)
     },
     /* public methods that (correspond to required functionality) */
     search: (searchString) => {
@@ -1100,7 +1105,15 @@ export default function ForceGraph (
     filter: (options) => {
     },
     /* event subscription method, provides interface for graph specific events e.g. click on node */
-    on: ({eventName, callback}) => {
+    on: (eventName, callback) => {
+      if(eventName === 'nodeClick') {
+        nodeG.selectAll('.node').on('click', function (event, d) {
+          // Call the provided callback with the relevant information
+          callback({
+            clickedNodeData: d,
+          });
+        });
+      }
     },
     showNearestNeighbour: () => {
       buttonClickHandler ('nearest_neighbour')
