@@ -73,7 +73,8 @@ export default function ForceGraph (
       custom: function (tooltipEl, d) {
         const tooltip = tooltipEl.node()
       }
-    }
+    },
+    preventLabelCollision = true
   } = {}
 ) {
   // Merge default and user given styles
@@ -256,7 +257,7 @@ export default function ForceGraph (
 
   /// /////////////////////////// Create a legend ////////////////////////////////
   const legendWidth = 350
-  const legendHeight = categories.length * 30
+  const legendHeight = Math.max(130, categories.length * 30)
   const legend = g
     .append('g')
     .attr('class', 'legend')
@@ -350,17 +351,22 @@ export default function ForceGraph (
     'y',
     d3.forceY((d) => d.y)
   )
-  // .force(
-  //   'collide',
-  //   d3
-  //     .forceCollide()
-  //     .radius((d) => d.radius)
-  //     .iterations(3)
-  // )
-  .force('collide', forceCollide())
   // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
   .force('charge', d3.forceManyBody().strength(-600))
   .force('cluster', forceCluster().strength(0.15))
+
+  if(preventLabelCollision) {
+    simulation.force('collide', forceCollide())
+  } else {
+    simulation
+      .force(
+        'collide',
+        d3
+          .forceCollide()
+          .radius((d) => d.radius)
+          .iterations(3)
+      )
+  }
 
   updateAttributes(showEle.nodes, showEle.links)
   updateLayout()
@@ -723,7 +729,7 @@ export default function ForceGraph (
     
     function drag (simulation) {
       function dragstarted (event, d) {
-        if (!event.active) simulation.alphaTarget(0.1).restart()
+        if (!event.active) simulation.alpha(0.1).alphaTarget(0.1).restart()
         d.fx = d.x
         d.fy = d.y
       }

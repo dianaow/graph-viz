@@ -1,6 +1,6 @@
 // Function to split long text into lines
 export function splitLongText (text, maxLineLength) {
-  const words = text.split(' ')
+  const words = text ? text.split(' ') : []
   const lines = []
   let currentLine = ''
 
