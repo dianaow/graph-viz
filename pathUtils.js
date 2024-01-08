@@ -6,7 +6,6 @@ export function generateArc (d, NUM, excludeRadius) {
   const finalPoint = { x: d.target.x, y: d.target.y }
   d.r = Math.sqrt(sq(dx) + sq(dy)) * 0.75
   const centers = findCenters(d.r, initialPoint, finalPoint)
-
   const path = drawCircleArcSVG(centers.c1, d.r, initialPoint, finalPoint, NUM, d.source.radius, d.target.radius + d.strokeWidth + 5 * d.strokeWidth * 0.8)
   return path
 }

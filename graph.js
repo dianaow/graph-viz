@@ -51,7 +51,6 @@ export default function ForceGraph (
     sourceId = 'source',
     targetId = 'target',
     nodeGroup, // key in data representing a node group
-    colors = d3.schemeTableau10, // an array of color strings, for the node groups
     width = 640, // outer width, in pixels
     height = 400, // outer height, in pixels
     nodeStyles = defaultNodeStyles,
@@ -74,7 +73,7 @@ export default function ForceGraph (
         const tooltip = tooltipEl.node()
       }
     },
-    preventLabelCollision = true
+    preventLabelCollision = false
   } = {}
 ) {
   // Merge default and user given styles
@@ -157,9 +156,13 @@ export default function ForceGraph (
     .range([1, 3])
     .clamp(true)
 
-  const categories = [...new Set(showEle.nodes.map((d) => d[nodeGroup]))]
+  //const categories = [...new Set(showEle.nodes.map((d) => d[nodeGroup]))]
+  const categories = ['Organization', 'Location']
+  const colors = ["#418BFC", "#46BCC8", "#D6AB1B", "#EB5E68", "#B6BE1C", "#F64D1A", "#BA6DE4", "#EA6BCB", "#B9AAC8", "#F08519"]
 
-  const colorScale = d3.scaleOrdinal().domain(categories).range(colors)
+  const colorScale = d3.scaleOrdinal()
+    .domain(categories)
+    .range(colors)
 
   /// ///////////////// Set up initial  DOM elements on screen ///////////////////
   const container = d3.select(containerSelector)
@@ -258,10 +261,10 @@ export default function ForceGraph (
   /// /////////////////////////// Create a legend ////////////////////////////////
   const legendWidth = 350
   const legendHeight = Math.max(130, categories.length * 30)
-  const legend = g
+  const legend = svg
     .append('g')
     .attr('class', 'legend')
-    .attr('transform', (d, i) => `translate(${width / 2 - legendWidth}, ${height / 2 - legendHeight})`)
+    .attr('transform', (d, i) => `translate(${width / 2 - legendWidth}, ${height / 2 - legendHeight - 100})`)
 
   legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles['background-color']).attr('stroke', containerStyles.color).attr('width', legendWidth).attr('height', legendHeight)
 
@@ -392,19 +395,14 @@ export default function ForceGraph (
     links.forEach((l, i) => {
       if (typeof linkStyles.strokeWidth === 'string' && !linkStyles.strokeWidth.includes('px')) {
         const W = d3.map(showEle.links, (d) => d[linkStyles.strokeWidth])
-        l.strokeWidth = linkWidthScale(W[i])
+        l.strokeWidth = linkWidthScale(W[i]) || 1
       } else {
         l.strokeWidth = linkStyles.strokeWidth
       }
     })
   }
 
-  function updateLayout (nodesToAdd, linksToAdd) {
-
-    if(nodesToAdd && linksToAdd) updateAttributes(nodesToAdd, linksToAdd)
-    if(nodesToAdd && nodesToAdd.length > 0) showEle.nodes = showEle.nodes.concat(nodesToAdd)
-    if(linksToAdd && linksToAdd.length > 0) showEle.links = showEle.links.concat(linksToAdd)
-
+  function updateLayout () {
     // PRECAUTIONARY ACTION: REMOVE DUPLICATE LINKS
     const uniqueLinks = []
     const uniqueLinksSet = new Set()
@@ -524,7 +522,7 @@ export default function ForceGraph (
     // Update existing links
     const link = linkG
       .selectAll('path.link')
-      .data(showEle.links)
+      .data(showEle.links, (d) => d.source.id + '_' + d.target.id)
       .join(
         (enter) =>
           enter
@@ -560,7 +558,7 @@ export default function ForceGraph (
     // Update existing link labels
     const linkTexts = linkTextG
       .selectAll('text.link')
-      .data(showEle.links)
+      .data(showEle.links, (d) => d.source.id + '_' + d.target.id)
       .join(
         (enter) =>
           enter
@@ -946,7 +944,7 @@ export default function ForceGraph (
     if (!tooltipDiv.innerHTML) {
       const content = []
       content.push(`<div style='padding-bottom: 4px; font-size: 18px; font-weight: bold;'><span style='color: ${d.source.color}'>${d.source.id}</span> -> <span style='color: ${d.target.color}'>${d.target.id}</span></div>`) // tooltip title
-      const keys = ['Description', 'Relation', 'Relevance', 'Object', 'Subject']
+      const keys = ['Description', 'Relation', 'Object', 'Subject']
       keys.forEach((key) => {
         // iterate over each attribute object and render
         content.push(`<div><b>${key}: </b><span>${d[key]}</span></div>`)
@@ -1010,9 +1008,9 @@ export default function ForceGraph (
 
   function searchHandler (item) {
     searched = true
-    const node = showEle.nodes.find((n) => n.NAME === item)
+    const node = showEle.nodes.find((n) => n.id === item)
     if (node) {
-      zoomToNode(item)
+      zoomToNode(node)
       highlightNode(item)
     } else {
       d3.select('.message').style('visibility', 'visible')
@@ -1089,7 +1087,7 @@ export default function ForceGraph (
 
   return {
     /* public data update  method */
-    update: ({nodes, links}) => {
+    update: ({nodes, links, redraw=true}) => {
       const N = d3.map(nodes, (d) => d[nodeId]).map(intern)
       const LS = d3.map(links, (d) => d[sourceId]).map(intern)
       const LT = d3.map(links, (d) => d[targetId]).map(intern)
@@ -1102,11 +1100,22 @@ export default function ForceGraph (
         target: LT[i],
         ...d
       }))
-      updateLayout(nodes, links)
+      updateAttributes(nodes, links)
+      if(redraw){
+        showEle.nodes = nodes
+        showEle.links = links
+      } else {
+        showEle.nodes = showEle.nodes.concat(nodes)
+        showEle.links = showEle.links.concat(links)
+      }
+      updateLayout()
     },
     /* public methods that (correspond to required functionality) */
     search: (searchString) => {
       searchHandler (searchString)
+    },
+    closeSearch: (searchString) => {
+      reset()
     },
     filter: (options) => {
     },
