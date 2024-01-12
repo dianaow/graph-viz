@@ -8,7 +8,7 @@ import { splitLongText, getTextSize } from './utils.js'
 const defaultContainerStyles = {
   'background-color': '#15181F',
   color: '#ffffff',
-  'font-family': 'Courier'
+  'font-family': 'sans-serif'
 }
 
 const defaultLabelStyles = {
@@ -25,7 +25,7 @@ const defaultLabelStyles = {
 }
 
 const defaultNodeStyles = {
-  // fill: '#000000', // node color (only applied if specified)
+  fill: '#ffffff', // node color (only applied if specified)
   // stroke : '#000000', // node stroke color (only applied if specified)
   strokeWidth: 1, // node stroke width, in pixels
   fillOpacity: 0.8, // node stroke opacity
@@ -95,7 +95,7 @@ export default function ForceGraph (
   if (!containerStyles['font-family']) containerStyles['font-family'] = 'Courier'
 
   // Initial states
-  const maxLineLength = 30
+  const maxLineLength = 22
   const showEle = {}
   const nodeDegrees = {} // an object to store each node degree (number of connections that a node has to other nodes in the network)
   let singleNodeIDs = [] // an array to store the names of nodes with no connections to other nodes
@@ -147,7 +147,7 @@ export default function ForceGraph (
   const nodeRadiusScale = d3
     .scaleSqrt()
     .domain([0, d3.max(Object.values(nodeDegrees))])
-    .range([6, 24])
+    .range([4, 18])
     .clamp(true)
 
   const linkWidthScale = d3
@@ -156,9 +156,14 @@ export default function ForceGraph (
     .range([1, 3])
     .clamp(true)
 
+  const colors = ["#418BFC", "#46BCC8", "#EB5E68", "#B6BE1C", "#F64D1A", "#BA6DE4", "orange", "#ffffff"]
   //const categories = [...new Set(showEle.nodes.map((d) => d[nodeGroup]))]
-  const categories = ['Organization', 'Location']
-  const colors = ["#418BFC", "#46BCC8", "#D6AB1B", "#EB5E68", "#B6BE1C", "#F64D1A", "#BA6DE4", "#EA6BCB", "#B9AAC8", "#F08519"]
+  
+  // only assign colors to the top 7 categories with the most nodes
+  const groupedData = d3.rollup(showEle.nodes, v => v.length, d => d[nodeGroup])
+  const groupedData1 = Array.from(groupedData, ([key, value]) => ({ key, value }));
+  groupedData1.sort((a, b) => d3.descending(a.value, b.value))
+  const categories = groupedData1.map(d => d.key).slice(0, colors.length - 1)
 
   const colorScale = d3.scaleOrdinal()
     .domain(categories)
@@ -323,6 +328,11 @@ export default function ForceGraph (
   /// ///////////////////////// add zoom capabilities ////////////////////////////
   const zoomHandler = d3.zoom().on('zoom', function (event) {
     g.attr('transform', event.transform)
+    if (event.transform.k >= 3) {
+      svg.selectAll('textPath').attr("visibility", 'visible');
+    } else {
+      svg.selectAll('textPath').attr('visibility', labelStyles.edge.visibility);
+    }
     // if (clicked || searched) return;
     // zoomLevel = event.transform.k;
     // if (zoomLevel >= 3.5) {
@@ -344,7 +354,9 @@ export default function ForceGraph (
     d3
       .forceLink()
       .id((d) => d.id)
-      .distance(100)
+      .distance((d) => {
+        return d.source.id === 'sutainable energy' ? 75 : 55
+      })
   )
   .force(
     'x',
@@ -355,8 +367,8 @@ export default function ForceGraph (
     d3.forceY((d) => d.y)
   )
   // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
-  .force('charge', d3.forceManyBody().strength(-600))
-  .force('cluster', forceCluster().strength(0.15))
+  .force('charge', d3.forceManyBody().strength(-250))
+  //.force('cluster', forceCluster().strength(0.15))
 
   if(preventLabelCollision) {
     simulation.force('collide', forceCollide())
@@ -385,11 +397,11 @@ export default function ForceGraph (
         const text = getTextSize(string, Math.max(8, radius) + 'px', containerStyles['font-family'])
         texts.push({ text: string, width: text.width, height: text.height })
       })
-  
+
       n.width = d3.max(texts, (d) => d.width) + radius * 2
       n.height = d3.max(texts, (d) => d.height) * substrings.length + radius
       n.radius = radius
-      n.color = nodeStyles.fill || colorScale(n[nodeGroup])
+      n.color = colorScale(n[nodeGroup])
     })
   
     links.forEach((l, i) => {
@@ -568,6 +580,7 @@ export default function ForceGraph (
             // .attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
             .attr('dy', -3)
             .append('textPath')
+            .attr('visibility', labelStyles.edge.visibility)
             .attr('xlink:href', (d, i) => '#' + d.source.id + '_' + d.target.id)
             .attr('startOffset', '50%')
             .attr('text-anchor', 'middle')
@@ -576,7 +589,6 @@ export default function ForceGraph (
         (update) => update,
         (exit) => exit.remove()
       )
-      .attr('visibility', labelStyles.edge.visibility)
       .attr('opacity', labelStyles.edge.opacity)
       .attr('fill', labelStyles.edge.color || labelStyles.color)
       .attr('font-size', labelStyles.edge['font-size'])
@@ -699,7 +711,7 @@ export default function ForceGraph (
           .enter()
           .append('tspan')
           .attr('x', 0)
-          .attr('y', (d, i) => 8 * i)
+          .attr('y', (d, i) => 9.5 * i)
           .text((d) => d)
 
         return newText
