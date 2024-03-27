@@ -3,7 +3,7 @@ import { bfsFromNode } from 'graphology-traversal'
 import { dijkstra } from 'graphology-shortest-path'
 import Graph from 'graphology'
 import { generateArc, generatePath } from './pathUtils.js'
-import { splitLongText, getTextSize } from './utils.js'
+import { findParent, splitLongText, getTextSize, getNodeColor, setNodeColor, getRootNodes, mixColors, hslToRgb, forceCollide } from './utils.js'
 
 const defaultContainerStyles = {
   'background-color': '#15181F',
@@ -37,7 +37,7 @@ const defaultLinkStyles = {
   // stroke : '#ffffff', // link stroke color (only applied if specified, if not it will follow the source node color)
   strokeOpacity: 1, // link stroke opacity
   strokeWidth: 2, // given d in links, returns a stroke width in pixels
-  type: 'arc' // arc/line
+  type: 'line' // arc/line
 }
 
 export default function ForceGraph (
@@ -95,6 +95,7 @@ export default function ForceGraph (
   if (!containerStyles['font-family']) containerStyles['font-family'] = 'Courier'
 
   // Initial states
+  const visited = new Set();
   const maxLineLength = 22
   const showEle = {}
   const nodeDegrees = {} // an object to store each node degree (number of connections that a node has to other nodes in the network)
@@ -117,17 +118,33 @@ export default function ForceGraph (
   let showShortestPath = false // if user is allowed to click on any node to begin SP search, showShortestPath = true (this flag helps to differentiate from click-to-drag event)
   let showSingleNodes = true // to show/hide on screen nodes with no connections
 
+  nodes.forEach(d => {
+    d.parent = findParent(links, d.entity)
+    d.linkCnt = countConnections(links, d.entity);
+    d.root = d.entity === 'sustainable energy' ? true : false
+  })
+
+  let flatLinks = []
+  for (const entity in links) {
+    links[entity].map(d => {
+      flatLinks.push({
+        ...d,
+        Subject: entity
+      })
+    })
+  }
+
   // Set up accessors to enable a cleaner way of accessing data attributes
   const N = d3.map(nodes, (d) => d[nodeId]).map(intern)
-  const LS = d3.map(links, (d) => d[sourceId]).map(intern)
-  const LT = d3.map(links, (d) => d[targetId]).map(intern)
+  const LS = d3.map(flatLinks, (d) => d[sourceId]).map(intern)
+  const LT = d3.map(flatLinks, (d) => d[targetId]).map(intern)
 
   // Replace the input nodes and links with mutable objects for the simulation
   showEle.nodes = d3.map(nodes, (d, i) => ({
     id: N[i],
     ...d
   }))
-  showEle.links = d3.map(links, (d, i) => ({
+  showEle.links = d3.map(flatLinks, (d, i) => ({
     source: LS[i],
     target: LT[i],
     ...d
@@ -142,11 +159,13 @@ export default function ForceGraph (
   showEle.links.forEach((link) => {
     nodeDegrees[link.source]++
     nodeDegrees[link.target]++
+    nodeDegrees[link.Subject]++
   })
 
   const nodeRadiusScale = d3
     .scaleSqrt()
-    .domain([0, d3.max(Object.values(nodeDegrees))])
+    //.domain([0, d3.max(Object.values(nodeDegrees))])
+    .domain([0, d3.max(showEle.nodes, d => d.linkCnt)])
     .range([4, 18])
     .clamp(true)
 
@@ -165,9 +184,20 @@ export default function ForceGraph (
   groupedData1.sort((a, b) => d3.descending(a.value, b.value))
   const categories = groupedData1.map(d => d.key).slice(0, colors.length - 1)
 
+  // Generate rainbow colors and print RGB codes
+  const hubs = Object.keys(links)
+  const rainbowColors = [];
+  const numberOfColors = hubs.length;
+
+  for (let i = 0; i < numberOfColors; i++) {
+      const hue = i / numberOfColors;
+      const [r, g, b] = hslToRgb(hue, 1, 0.5);
+      rainbowColors.push([r, g, b]);
+  }
+
   const colorScale = d3.scaleOrdinal()
-    .domain(categories)
-    .range(colors)
+    .domain(hubs)
+    .range(rainbowColors)
 
   /// ///////////////// Set up initial  DOM elements on screen ///////////////////
   const container = d3.select(containerSelector)
@@ -300,28 +330,28 @@ export default function ForceGraph (
 
   legend.append('text').attr('x', 150).attr('y', 25).attr('font-size', '10px').attr('fill', containerStyles.color).text('Number of connections')
 
-  const legendItems = legend
-    .selectAll('.legend-item')
-    .data(categories)
-    .enter()
-    .append('g')
-    .attr('class', 'legend-item')
-    .attr('transform', (d, i) => `translate(0, ${(i + 1) * 20})`)
+  // const legendItems = legend
+  //   .selectAll('.legend-item')
+  //   .data(categories)
+  //   .enter()
+  //   .append('g')
+  //   .attr('class', 'legend-item')
+  //   .attr('transform', (d, i) => `translate(0, ${(i + 1) * 20})`)
 
-  legendItems
-    .append('rect')
-    .attr('width', 15)
-    .attr('height', 15)
-    .attr('fill', (d) => colorScale(d))
+  // legendItems
+  //   .append('rect')
+  //   .attr('width', 15)
+  //   .attr('height', 15)
+  //   .attr('fill', (d) => colorScale(d))
 
-  legendItems
-    .append('text')
-    .attr('x', 25)
-    .attr('y', 8)
-    .attr('alignment-baseline', 'middle')
-    .text((d, i) => d)
-    .style('font-size', '12px')
-    .style('fill', containerStyles.color)
+  // legendItems
+  //   .append('text')
+  //   .attr('x', 25)
+  //   .attr('y', 8)
+  //   .attr('alignment-baseline', 'middle')
+  //   .text((d, i) => d)
+  //   .style('font-size', '12px')
+  //   .style('fill', containerStyles.color)
 
   /// ////////////////////////////////////////////////////////////////////////////
 
@@ -388,7 +418,7 @@ export default function ForceGraph (
 
   function updateAttributes(nodes, links) {
     nodes.forEach((n, i) => {
-      n.linkCnt = nodeDegrees[n.id] || 0
+      //n.linkCnt = nodeDegrees[n.id] || 0
       const radius = nodeRadiusScale(n.linkCnt)
       const substrings = splitLongText(n.id, maxLineLength)
   
@@ -401,7 +431,7 @@ export default function ForceGraph (
       n.width = d3.max(texts, (d) => d.width) + radius * 2
       n.height = d3.max(texts, (d) => d.height) * substrings.length + radius
       n.radius = radius
-      n.color = colorScale(n[nodeGroup])
+      n.color = hubs.indexOf(n.id) === -1 ? colorScale(n.parent[n.parent.length - 1]) : (n.root ? [255, 255, 255] : colorScale(n.id) )
     })
   
     links.forEach((l, i) => {
@@ -431,6 +461,8 @@ export default function ForceGraph (
     showEle.links = uniqueLinks
 
     const graph = initGraphologyGraph(showEle.nodes, showEle.links)
+    
+    colorNodes(graph, showEle.nodes);
 
     const clickNodeForShortestPath = (dd) => {
       if (clickedNodes.length < 2) {
@@ -541,7 +573,10 @@ export default function ForceGraph (
             .append('path')
             .attr('class', 'link')
             .attr('id', (d) => d.source.id + '_' + d.target.id)
-            .attr('stroke', (d) => linkStyles.stroke || colorScale(d.source[nodeGroup]))
+            .attr('stroke', (d) => {
+              const node = showEle.nodes.find(el => el.id === d.target.id) 
+              return linkStyles.stroke || `rgb(${node.color[0]}, ${node.color[1]}, ${node.color[2]})`
+            })
             .attr('stroke-width', (d) => d.strokeWidth)
             .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
             .attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))      
@@ -639,8 +674,8 @@ export default function ForceGraph (
         newNode
           .append('circle')
           .attr('r', (d) => d.radius)
-          .attr('fill', (d) => (nodeStyles.type === 'gradient' ? `url('#radial-gradient-${d.color}')` : d.color))
-          .attr('stroke', (d) => nodeStyles.stroke || d.color)
+          .attr('fill', (d) => (nodeStyles.type === 'gradient' ? `url('#radial-gradient-${d.color}')` : (d.root ? `rgb(255,255,255)` : `rgb(${d.color[0]}, ${d.color[1]}, ${d.color[2]})`)))
+          .attr('stroke', (d) => nodeStyles.stroke || (d.root ? `rgb(255,255,255)` : `rgb(${d.color[0]}, ${d.color[1]}, ${d.color[2]})`))
           .attr('fill-opacity', nodeStyles.fillOpacity)
           .attr('stroke-opacity', nodeStyles.type === 'filled' ? nodeStyles.fillOpacity : nodeStyles.strokeOpacity)
           .attr('stroke-width', nodeStyles.type === 'gradient' ? '0.5px' : nodeStyles.strokeWidth) // it's nicer to have a thin circle stroke for nodes with radial gradient stroke
@@ -759,91 +794,6 @@ export default function ForceGraph (
       return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended)
     }
   }
-
-  function centroid (nodes) {
-    let x = 0
-    let y = 0
-    let z = 0
-    for (const d of nodes) {
-      const k = d.radius ** 2
-      x += d.x * k
-      y += d.y * k
-      z += k
-    }
-    return { x: x / z, y: y / z }
-  }
-
-  function forceCluster () {
-    let strength = 0.8
-    let nodes
-    function force (alpha) {
-      const centroids = d3.rollup(nodes, centroid, (d) => d[nodeGroup])
-      const l = alpha * strength
-      for (const d of nodes) {
-        const { x: cx, y: cy } = centroids.get(d[nodeGroup])
-        d.vx -= (d.x - cx) * l
-        d.vy -= (d.y - cy) * l
-      }
-    }
-    force.initialize = (_) => (nodes = _)
-    force.strength = function (_) {
-      return arguments.length ? ((strength = +_), force) : strength
-    }
-    return force
-  }
-
-  function forceCollide () {
-    let nodes
-
-    function force (alpha) {
-      const quad = d3.quadtree(
-        nodes,
-        (d) => d.x,
-        (d) => d.y
-      )
-      for (const d of nodes) {
-        quad.visit((q, x1, y1, x2, y2) => {
-          let updated = false
-          if (q.data && q.data !== d) {
-            let x = d.x - d.radius - (q.data.x - q.data.radius)
-            let y = d.y - d.radius - (q.data.y - q.data.radius)
-            const xSpacing = 20 + (q.data.width + d.width) / 2
-            const ySpacing = 14 + (q.data.height + d.height) / 2
-            const absX = Math.abs(x)
-            const absY = Math.abs(y)
-            let l
-            let lx
-            let ly
-
-            if (absX < xSpacing && absY < ySpacing) {
-              l = Math.sqrt(x * x + y * y)
-
-              lx = (absX - xSpacing) / l
-              ly = (absY - ySpacing) / l
-
-              // the one that's barely within the bounds probably triggered the collision
-              if (Math.abs(lx) > Math.abs(ly)) {
-                lx = 0
-              } else {
-                ly = 0
-              }
-              d.x -= x *= lx
-              d.y -= y *= ly
-              q.data.x += x
-              q.data.y += y
-
-              updated = true
-            }
-          }
-          return updated
-        })
-      }
-    }
-
-    force.initialize = (_) => (nodes = _)
-
-    return force
-  }
   ////////////////////////////////////////////////////////////////////////////////
 
   ///////////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
@@ -913,18 +863,61 @@ export default function ForceGraph (
   }
 
   // Find neighboring connections of the clicked node (up to 2 degrees away, OUTWARD-BOUND only: meaning target nodes their links)
-  function findNeighbours (graph, ddArr) {
+  function findNeighbours (graph, ddArr, degree=2) {
     const connectedNodes = []
     ddArr.forEach((dd) => {
       bfsFromNode(graph, dd.id ? dd.id : dd, function (node, attr, depth) {
-        if (depth <= 2) {
+        if (depth <= degree) {
           connectedNodes.push(node)
         }
       })
     })
     highlightConnections(connectedNodes)
+    return connectedNodes
   }
 
+  function countConnections(links, entity, depth = 0) {
+    if (visited.has(entity)) {
+        // Skip if entity has already been visited to prevent infinite recursion
+        return 0;
+    }
+  
+    visited.add(entity);
+  
+    const entityRelations = links[entity];
+    let count = entityRelations ? entityRelations.length : 0;
+  
+    if (count > 0 && Object.keys(links) !== 0 && entityRelations && entityRelations.length > 0) {
+        entityRelations.forEach(relation => {
+            count += countConnections(links, relation.Object, depth + 1);
+        });
+    }
+  
+    visited.delete(entity);
+  
+    return count;
+  }
+  
+  // Function to color nodes based on neighbors
+  function colorNodes(graph, nodes) {
+    const visited = new Set();
+
+    function traverse(node) {
+      if (!visited.has(node)) {
+        visited.add(node);
+        const neighbors = findNeighbours(graph, [node], 1).slice(1);
+        let nodeColor = getNodeColor(nodes, node);
+        neighbors.forEach(neighbor => {
+          const neighborColor = getNodeColor(nodes, neighbor);
+          nodeColor = mixColors(nodeColor, neighborColor);
+        });
+        setNodeColor(nodes, node, nodeColor);
+        neighbors.forEach(traverse);
+      }
+    }
+    getRootNodes(graph).forEach(rootNode => traverse(rootNode));
+  }
+    
   function updateTooltip (d) {
     tooltip.custom(tooltipDiv, d)
 

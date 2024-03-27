@@ -70,11 +70,10 @@ export function generatePath (d, excludeRadius) {
 
   let sourceNewX, sourceNewY, targetNewX, targetNewY
   if (excludeRadius) {
-    console.log(d)
     sourceNewX = d.source.x + Math.cos(gamma) * d.source.radius
     sourceNewY = d.source.y + Math.sin(gamma) * d.source.radius
-    targetNewX = d.target.x - Math.cos(gamma) * (d.target.radius + d.strokeWidth + 5)
-    targetNewY = d.target.y - Math.sin(gamma) * (d.target.radius + d.strokeWidth + 5)
+    targetNewX = d.target.x - Math.cos(gamma) * d.target.radius
+    targetNewY = d.target.y - Math.sin(gamma) * d.target.radius
   } else {
     sourceNewX = d.source.x
     sourceNewY = d.source.y
