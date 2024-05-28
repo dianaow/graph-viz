@@ -1,5 +1,5 @@
 {
-  "name": "undp-energy-graph",
+  "name": "graph-viz",
   "version": "1.0.0",
   "description": "",
   "main": "graph.js",

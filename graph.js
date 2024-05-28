@@ -3,7 +3,7 @@ import { bfsFromNode } from 'graphology-traversal'
 import { dijkstra } from 'graphology-shortest-path'
 import Graph from 'graphology'
 import { generateArc, generatePath } from './pathUtils.js'
-import { findParent, splitLongText, getTextSize, getNodeColor, setNodeColor, getRootNodes, mixColors, hslToRgb, forceCollide } from './utils.js'
+import { findParent, splitLongText, getTextSize, getNodeColor, setNodeColor, getRootNodes, mixColors, hslToRgb, forceCollide  } from './utils.js'
 
 const defaultContainerStyles = {
   'background-color': '#15181F',
@@ -35,7 +35,7 @@ const defaultNodeStyles = {
 
 const defaultLinkStyles = {
   // stroke : '#ffffff', // link stroke color (only applied if specified, if not it will follow the source node color)
-  strokeOpacity: 1, // link stroke opacity
+  strokeOpacity: 0.7, // link stroke opacity
   strokeWidth: 2, // given d in links, returns a stroke width in pixels
   type: 'line' // arc/line
 }
@@ -118,33 +118,25 @@ export default function ForceGraph (
   let showShortestPath = false // if user is allowed to click on any node to begin SP search, showShortestPath = true (this flag helps to differentiate from click-to-drag event)
   let showSingleNodes = true // to show/hide on screen nodes with no connections
 
-  nodes.forEach(d => {
+  const ele = uniqueElements(nodes, links)
+
+  ele.nodes.forEach(d => {
     d.parent = findParent(links, d.entity)
-    d.linkCnt = countConnections(links, d.entity);
-    d.root = d.entity === 'sustainable energy' ? true : false
+    d.linkCnt = d.type === 'sub' ? 0 : countConnections(links, d.entity);
+    //d.root = d.entity === 'sustainable energy' ? true : false
   })
 
-  let flatLinks = []
-  for (const entity in links) {
-    links[entity].map(d => {
-      flatLinks.push({
-        ...d,
-        Subject: entity
-      })
-    })
-  }
-
   // Set up accessors to enable a cleaner way of accessing data attributes
-  const N = d3.map(nodes, (d) => d[nodeId]).map(intern)
-  const LS = d3.map(flatLinks, (d) => d[sourceId]).map(intern)
-  const LT = d3.map(flatLinks, (d) => d[targetId]).map(intern)
+  const N = d3.map(ele.nodes, (d) => d[nodeId]).map(intern)
+  const LS = d3.map(ele.links, (d) => d[sourceId]).map(intern)
+  const LT = d3.map(ele.links, (d) => d[targetId]).map(intern)
 
   // Replace the input nodes and links with mutable objects for the simulation
-  showEle.nodes = d3.map(nodes, (d, i) => ({
+  showEle.nodes = d3.map(ele.nodes, (d, i) => ({
     id: N[i],
     ...d
   }))
-  showEle.links = d3.map(flatLinks, (d, i) => ({
+  showEle.links = d3.map(ele.links, (d, i) => ({
     source: LS[i],
     target: LT[i],
     ...d
@@ -162,11 +154,13 @@ export default function ForceGraph (
     nodeDegrees[link.Subject]++
   })
 
+  const graph = initGraphologyGraph(showEle.nodes, showEle.links);
+
   const nodeRadiusScale = d3
     .scaleSqrt()
     //.domain([0, d3.max(Object.values(nodeDegrees))])
     .domain([0, d3.max(showEle.nodes, d => d.linkCnt)])
-    .range([4, 18])
+    .range([4, 40])
     .clamp(true)
 
   const linkWidthScale = d3
@@ -185,7 +179,8 @@ export default function ForceGraph (
   const categories = groupedData1.map(d => d.key).slice(0, colors.length - 1)
 
   // Generate rainbow colors and print RGB codes
-  const hubs = Object.keys(links)
+  const hubs = Array.from(new Set(links.map(d => d.parent)))
+  //const hubs = Object.keys(links)
   const rainbowColors = [];
   const numberOfColors = hubs.length;
 
@@ -282,14 +277,11 @@ export default function ForceGraph (
   // Create clip-path for image icons
   // svg.append('defs').selectAll('clipPath').data(showEle.nodes).join('clipPath').attr('id', (d) => d.id + '-clip').append('circle').attr('r', (d) => d.radius);
 
-  const g = svg.append('g')
+  const g = svg.append('g').attr('class', 'main-group')
 
   const linkG = g.append('g').attr('class', 'links')
-
   const linkTextG = g.append('g').attr('class', 'linkTexts')
-
   const nodeG = g.append('g').attr('class', 'nodes')
-
   const textG = g.append('g').attr('class', 'labels')
   /// ////////////////////////////////////////////////////////////////////////////
 
@@ -384,9 +376,9 @@ export default function ForceGraph (
     d3
       .forceLink()
       .id((d) => d.id)
-      .distance((d) => {
-        return d.source.id === 'sutainable energy' ? 75 : 55
-      })
+      //.distance((d) => {
+        //return d.source.id === 'sutainable energy' ? 75 : 55
+      //})
   )
   .force(
     'x',
@@ -413,8 +405,35 @@ export default function ForceGraph (
       )
   }
 
-  updateAttributes(showEle.nodes, showEle.links)
-  updateLayout()
+  //updateAttributes(showEle.nodes, showEle.links)
+  //updateLayout()
+
+  function uniqueElements(nodes, links) {
+    // May not be needed in future: Check for duplicate nodes and links, particularly so since we are constructing the graph only based on relations data
+    const uniqueNodes = nodes.reduce((acc, node) => {
+      // Check if a node with the same 'entity' already exists in the accumulator
+      const existingNode = acc.find((n) => n[nodeId] === node[nodeId]);
+      // If not found, add the current node to the accumulator
+      if (!existingNode) {
+        acc.push(node);
+      } 
+      return acc;
+    }, []);
+
+    const uniqueLinks = links.reduce((acc, link) => {
+      // Check if a link with the same 'Subject' and 'Object' already exists in the accumulator
+      const existingLink = acc.find(
+        (l) => l[sourceId] === link[sourceId] && l[targetId] === link[targetId]
+      );
+      // If not found, add the current link to the accumulator
+      if (!existingLink) {
+        acc.push(link);
+      }
+      return acc;
+    }, []);
+
+    return {nodes: uniqueNodes, links:uniqueLinks}
+  }
 
   function updateAttributes(nodes, links) {
     nodes.forEach((n, i) => {
@@ -491,8 +510,8 @@ export default function ForceGraph (
       }
     }
 
-    const clickNodeForNearestNeighbor = (dd) => {
-      updateTooltip(dd) // show tooltip on mouseover any node
+    const clickNodeForNearestNeighbor = (event, dd) => {
+      updateTooltip(event, dd) // show tooltip on mouseover any node
 
       const connectedNodes = findNeighbours(graph, [dd])
       if (connectedNodes) highlightConnections(connectedNodes)
@@ -502,10 +521,10 @@ export default function ForceGraph (
 
     simulation.nodes(showEle.nodes).force('link').links(showEle.links)
 
-    simulation.alphaTarget(0.5).restart() // increase alphaDecay value to cool down a graph more quickly
+    simulation.alphaTarget(0.1).restart() // increase alphaDecay value to cool down a graph more quickly
 
-    simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())))
-    // simulation.on('tick', ticked)
+    //simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())))
+    simulation.on('tick', ticked)
 
     // // Calculate cluster dimensions
     // const clusters = d3.groups(showEle.nodes, (d) => d[nodeGroup])
@@ -563,6 +582,30 @@ export default function ForceGraph (
     //   (exit) => exit.remove()
     // )
 
+    const enterFunc = enter => enter.transition().delay(550).duration(1000).attr("opacity", 1)
+    
+    const updateFunc = update => {
+      if (update.size() > 0) {
+        // Apply the force
+        simulation.force('charge', d3.forceManyBody().strength(-1550));
+      }   
+    }
+    
+    const exitFunc = exit => {
+      return exit.transition() // apply transition
+          .duration(500)
+          // .on("start", () => {
+          //   // After the second transition, adjust the force strength again
+          //   simulation.force('charge').strength(-1550);
+          // })
+          .attr("opacity", 0) // fade out
+          .remove() // remove from DOM
+          .end().then(() => {
+              // Remove the force after the transition ends
+              simulation.force('charge', d3.forceManyBody().strength(-250));
+          });
+    }
+
     // Update existing links
     const link = linkG
       .selectAll('path.link')
@@ -578,17 +621,18 @@ export default function ForceGraph (
               return linkStyles.stroke || `rgb(${node.color[0]}, ${node.color[1]}, ${node.color[2]})`
             })
             .attr('stroke-width', (d) => d.strokeWidth)
-            .attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
             .attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))      
             .on('mouseover', function (event, dd) {
               updateLinkTooltip(event, dd) // show tooltip on mouseover any link
             })
             .on('mouseleave', function () {
               tooltipDiv.style('visibility', 'hidden')
-            }),
+            })
+            .attr('opacity', 0)
+            .call(enter => enter.transition().delay(550).duration(1000).attr("opacity", linkStyles.strokeOpacity)),
 
-        (update) => update,
-        (exit) => exit.remove()
+        update => update.call(updateFunc),
+        exit => exit.call(exitFunc)
       )
       .attr('pointer-events', 'auto')
       .attr('cursor', 'pointer')
@@ -614,6 +658,8 @@ export default function ForceGraph (
             // .attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 10)
             // .attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
             .attr('dy', -3)
+            .attr('opacity', 0)
+            .call(enterFunc)
             .append('textPath')
             .attr('visibility', labelStyles.edge.visibility)
             .attr('xlink:href', (d, i) => '#' + d.source.id + '_' + d.target.id)
@@ -621,8 +667,8 @@ export default function ForceGraph (
             .attr('text-anchor', 'middle')
             .text((d) => d[labelStyles.edge.label]),
 
-        (update) => update,
-        (exit) => exit.remove()
+        update => update.call(updateFunc),
+        exit => exit.call(exitFunc)
       )
       .attr('opacity', labelStyles.edge.opacity)
       .attr('fill', labelStyles.edge.color || labelStyles.color)
@@ -638,7 +684,6 @@ export default function ForceGraph (
           .attr('class', 'node')
           .attr('pointer-events', 'auto')
           .attr('cursor', 'pointer')
-          .attr('opacity', 1)
           .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
           .call(drag(simulation))
           .on('click', function (event, dd) {
@@ -654,7 +699,7 @@ export default function ForceGraph (
                 }, 300)
               } else if (showNeighbors) {
                 timer = setTimeout(function () {
-                  clickNodeForNearestNeighbor(dd)
+                  clickNodeForNearestNeighbor(event, dd)
                   clickCount = 0
                 }, 300)
               } else {
@@ -669,8 +714,10 @@ export default function ForceGraph (
               clickCount = 0
             }
           })
+          .attr('opacity', 0)
+          .call(enterFunc)
           .on('dblclick.zoom', null)
-
+            
         newNode
           .append('circle')
           .attr('r', (d) => d.radius)
@@ -701,8 +748,8 @@ export default function ForceGraph (
 
         return newNode
       },
-      (update) => update,
-      (exit) => exit.remove()
+      (update) => update.call(updateFunc),
+      exit => exit.call(exitFunc)
     )
       
     // Update existing node labels
@@ -712,10 +759,11 @@ export default function ForceGraph (
       (enter) => {
         const newText = enter
           .append('g')
-          .attr('class', 'label')
-          .attr('opacity', 1)
+          .attr('class', (d) => 'label label-' + d.id.replaceAll(' ', '-'))
           .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
-          .attr('visibility', labelStyles.visibility)
+          .attr('visibility', (d) => d.type === 'main' ? labelStyles.visibility : 'hidden')
+          .attr('opacity', 0)
+          .call(enterFunc)
 
         // if(labelBorder){
         // newText
@@ -730,8 +778,7 @@ export default function ForceGraph (
 
         const text = newText
           .append('text')
-          .attr('transform', (d) => `translate(${d.radius + 5}, 0)`) // position label next to node without overlap
-          // .attr('transform', (d) => `translate(${(-d.width + (d.radius * 2))/ 2}, ${d.radius + 8})`)  // position label below node without overlap
+          .attr('transform', (d) => `translate(${(-d.width + (d.radius * 2))/ 2}, ${d.radius + 5})`)  // position label below node without overlap
           .attr('fill', labelStyles.color || containerStyles.color)
           .attr('stroke', containerStyles['background-color'])
           .attr('stroke-width', '0.3px')
@@ -746,16 +793,16 @@ export default function ForceGraph (
           .enter()
           .append('tspan')
           .attr('x', 0)
-          .attr('y', (d, i) => 9.5 * i)
+          .attr('y', (d, i) => 10.5 * i)
           .text((d) => d)
 
         return newText
       },
-      (update) => update,
-      (exit) => exit.remove()
+      (update) => update.call(updateFunc),
+      exit => exit.call(exitFunc)
     )
 
-    ticked()
+    //ticked()
 
     function ticked () {
       linkG.selectAll('path.link').attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
@@ -766,10 +813,14 @@ export default function ForceGraph (
 
     nodeG.selectAll('.node')
     .on('mouseover', function (event, dd) {
-      updateTooltip(dd) // show tooltip on mouseover any node
+      updateTooltip(event, dd) // show tooltip on mouseover any node
+      d3.select(this).select('circle').transition().duration(500).attr('r', (d) => d.radius * 1.2)
+      d3.select('.label-' + dd.id.replaceAll(' ', '-')).transition().duration(500).attr('visibility', 'visible')
     })
     .on('mouseleave', function () {
       tooltipDiv.style('visibility', 'hidden')
+      d3.select(this).select('circle').transition().duration(500).attr('r', (d) => d.radius)
+      d3.selectAll('.label').transition().duration(500).attr('visibility', (d) => d.type === 'main' ? labelStyles.visibility : 'hidden')
     })
     
     function drag (simulation) {
@@ -816,7 +867,7 @@ export default function ForceGraph (
     nodeG.selectAll('.node').attr('opacity', 1)
     nodeG.selectAll('.node').selectAll('circle').attr('stroke', nodeStyles.stroke).attr('stroke-width', nodeStyles.strokeWidth)
     linkG.selectAll('path.link').attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
-    linkTextG.selectAll('text.link').attr('opacity', 0.2)
+    linkTextG.selectAll('text.link').attr('opacity', 1)
     textG.selectAll('.label').attr('visibility', labelStyles.visibility)
 
     tooltipDiv.style('visibility', 'hidden')
@@ -862,19 +913,45 @@ export default function ForceGraph (
     }
   }
 
-  // Find neighboring connections of the clicked node (up to 2 degrees away, OUTWARD-BOUND only: meaning target nodes their links)
-  function findNeighbours (graph, ddArr, degree=2) {
-    const connectedNodes = []
-    ddArr.forEach((dd) => {
+  // Find neighboring connections of the clicked node (up to specified degrees away, OUTWARD-BOUND only: meaning target nodes their links)
+  function findNeighbours(graph, dd_arr, DEGREE) {
+    let connectedNodes = [];
+    dd_arr.forEach((dd) => {
       bfsFromNode(graph, dd.id ? dd.id : dd, function (node, attr, depth) {
-        if (depth <= degree) {
-          connectedNodes.push(node)
+        if (depth <= DEGREE) {
+          connectedNodes.push(node);
         }
-      })
-    })
-    highlightConnections(connectedNodes)
-    return connectedNodes
+      }, {mode: 'outbound'});
+      bfsFromNode(graph, dd.id ? dd.id : dd, function (node, attr, depth) {
+        if (depth <= DEGREE) {
+          connectedNodes.push(node);
+        }
+      }, {mode: 'inbound'});   
+    });
+    return connectedNodes;
   }
+
+  // function countConnections(links, entity, depth = 0) {
+  //   if (visited.has(entity)) {
+  //       // Skip if entity has already been visited to prevent infinite recursion
+  //       return 0;
+  //   }
+  
+  //   visited.add(entity);
+  
+  //   const entityRelations = links[entity];
+  //   let count = entityRelations ? entityRelations.length : 0;
+  
+  //   if (count > 0 && Object.keys(links) !== 0 && entityRelations && entityRelations.length > 0) {
+  //       entityRelations.forEach(relation => {
+  //           count += countConnections(links, relation.Object, depth + 1);
+  //       });
+  //   }
+  
+  //   visited.delete(entity);
+  
+  //   return count;
+  // }
 
   function countConnections(links, entity, depth = 0) {
     if (visited.has(entity)) {
@@ -884,12 +961,12 @@ export default function ForceGraph (
   
     visited.add(entity);
   
-    const entityRelations = links[entity];
+    const entityRelations = links.filter(d => d[sourceId] === entity);
     let count = entityRelations ? entityRelations.length : 0;
   
-    if (count > 0 && Object.keys(links) !== 0 && entityRelations && entityRelations.length > 0) {
+    if (count > 0 && entityRelations && entityRelations.length > 0) {
         entityRelations.forEach(relation => {
-            count += countConnections(links, relation.Object, depth + 1);
+            count += countConnections(links, relation[sourceId], depth + 1);
         });
     }
   
@@ -918,13 +995,13 @@ export default function ForceGraph (
     getRootNodes(graph).forEach(rootNode => traverse(rootNode));
   }
     
-  function updateTooltip (d) {
+  function updateTooltip (event, d) {
     tooltip.custom(tooltipDiv, d)
 
     if (!tooltipDiv.innerHTML) {
       const content = []
       content.push(`<div style='padding-bottom: 4px; font-size: 18px; font-weight: bold; color: ${d.color}'>${d.id}</div>`) // tooltip title
-      const keys = [nodeGroup, 'linkCnt']
+      const keys = ['type', 'parent']
       keys.forEach((key) => {
         // iterate over each attribute object and render
         content.push(`<div><b>${key}: </b><span>${d[key]}</span></div>`)
@@ -936,11 +1013,12 @@ export default function ForceGraph (
     }
 
     // const bbox = d3.select(".tooltip").node().getBoundingClientRect()
+    const [x, y] = d3.pointer(event, d3.select('svg'));
 
     tooltipDiv
       .style('visibility', 'visible')
-      .style('left', d.x + width / 2 + d.radius * 2 + 5 + 'px')
-      .style('top', d.y + height / 2 + 'px')
+      .style('left', x + d.radius + 'px')
+      .style('top', y + d.radius + 10 + 'px')
   }
 
   function updateLinkTooltip (event, d) {
@@ -987,7 +1065,7 @@ export default function ForceGraph (
     // Initialize a new Graphology graph and add all nodes and edges to it
     // This will be used for shortest path and finding neighbours later
     const graph = new Graph()
-
+  
     nodes.forEach((n) => {
       if (!graph.hasNode(n.id)) graph.addNode(n.id)
     })
@@ -1006,10 +1084,9 @@ export default function ForceGraph (
         }
       }
     })
-
+  
     return graph
   }
-  /// /////////////////////////////////////////////////////////////////
 
   function searchHandler (item) {
     searched = true
@@ -1093,26 +1170,34 @@ export default function ForceGraph (
   return {
     /* public data update  method */
     update: ({nodes, links, redraw=true}) => {
+      console.log(nodes, links)
       const N = d3.map(nodes, (d) => d[nodeId]).map(intern)
       const LS = d3.map(links, (d) => d[sourceId]).map(intern)
       const LT = d3.map(links, (d) => d[targetId]).map(intern)
       nodes = d3.map(nodes, (d, i) => ({
         id: N[i],
         ...d
-      }))
+      }))  
       links = d3.map(links, (d, i) => ({
         source: LS[i],
         target: LT[i],
         ...d
       }))
-      updateAttributes(nodes, links)
+      nodes.forEach(d => {
+        d.parent = findParent(links, d.entity)
+        d.linkCnt = d.type === 'sub' ? 0 : countConnections(links, d.entity);
+      })
+
+      const ele = uniqueElements(nodes, links)
+      updateAttributes(ele.nodes, ele.links)
       if(redraw){
-        showEle.nodes = nodes
-        showEle.links = links
+        showEle.nodes = ele.nodes
+        showEle.links = ele.links
       } else {
-        showEle.nodes = showEle.nodes.concat(nodes)
-        showEle.links = showEle.links.concat(links)
+        showEle.nodes = showEle.nodes.concat(ele.nodes)
+        showEle.links = showEle.links.concat(ele.links)
       }
+      console.log(showEle.nodes, showEle.links)
       updateLayout()
     },
     /* public methods that (correspond to required functionality) */
@@ -1123,6 +1208,13 @@ export default function ForceGraph (
       reset()
     },
     filter: (options) => {
+      console.log(ele.nodes, ele.links)
+      const connectedNodes = findNeighbours(graph, options, 2);
+      let entities = []
+      connectedNodes.map(d => {
+        entities.push(ele.nodes.find(node => node.entity === d) || {entity: d})
+      })
+      return {nodes: entities, links: ele.links.filter(d => connectedNodes.indexOf(d[sourceId]) !== -1 && connectedNodes.indexOf(d[targetId]) !== -1)}
     },
     /* event subscription method, provides interface for graph specific events e.g. click on node */
     on: (eventName, callback) => {

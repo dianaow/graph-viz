@@ -196,19 +196,32 @@ function forceCluster () {
   return force
 }
 
+// export function findParent(links, entity) {
+//   const parents = [];
+  
+//   // Iterate through each relation
+//   Object.keys(links).forEach(key => {
+//       const relations = links[key];
+      
+//       // Check if the entity has a relation with the provided entity
+//       relations.forEach(relation => {
+//           if (relation.Object === entity) {
+//               parents.push(key);
+//           }
+//       });
+//   });
+  
+//   return parents;
+// }
+
 export function findParent(links, entity) {
   const parents = [];
-  
+
   // Iterate through each relation
-  Object.keys(links).forEach(key => {
-      const relations = links[key];
-      
-      // Check if the entity has a relation with the provided entity
-      relations.forEach(relation => {
-          if (relation.Object === entity) {
-              parents.push(key);
-          }
-      });
+  links.forEach(key => {
+    if (key.Object === entity) {
+      parents.push(key.Subject);
+    }
   });
   
   return parents;
