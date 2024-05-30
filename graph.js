@@ -160,7 +160,7 @@ export default function ForceGraph (
     .scaleSqrt()
     //.domain([0, d3.max(Object.values(nodeDegrees))])
     .domain([0, d3.max(showEle.nodes, d => d.linkCnt)])
-    .range([4, 40])
+    .range([4, 20])
     .clamp(true)
 
   const linkWidthScale = d3
@@ -286,41 +286,41 @@ export default function ForceGraph (
   /// ////////////////////////////////////////////////////////////////////////////
 
   /// /////////////////////////// Create a legend ////////////////////////////////
-  const legendWidth = 350
-  const legendHeight = Math.max(130, categories.length * 30)
-  const legend = svg
-    .append('g')
-    .attr('class', 'legend')
-    .attr('transform', (d, i) => `translate(${width / 2 - legendWidth}, ${height / 2 - legendHeight - 100})`)
+  // const legendWidth = 350
+  // const legendHeight = Math.max(130, categories.length * 30)
+  // const legend = svg
+  //   .append('g')
+  //   .attr('class', 'legend')
+  //   .attr('transform', (d, i) => `translate(${width / 2 - legendWidth}, ${height / 2 - legendHeight - 100})`)
 
-  legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles['background-color']).attr('stroke', containerStyles.color).attr('width', legendWidth).attr('height', legendHeight)
+  // legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles['background-color']).attr('stroke', containerStyles.color).attr('width', legendWidth).attr('height', legendHeight)
 
-  legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles.color).attr('stroke', containerStyles['background-color']).attr('width', 80).attr('height', 30)
+  // legend.append('rect').attr('fill', containerStyles.color).attr('x', -20).attr('y', -20).attr('fill', containerStyles.color).attr('stroke', containerStyles['background-color']).attr('width', 80).attr('height', 30)
 
-  legend.append('text').attr('x', -10).attr('y', 0).attr('fill', containerStyles['background-color']).text('LEGEND')
+  // legend.append('text').attr('x', -10).attr('y', 0).attr('fill', containerStyles['background-color']).text('LEGEND')
 
-  const legendRadius = legend
-    .selectAll('.legendCircle')
-    .data(nodeRadiusScale.range())
-    .enter()
-    .append('g')
-    .attr('class', 'legendCircle')
-    .attr('transform', (d, i) => `translate(170, ${d + 40})`)
+  // const legendRadius = legend
+  //   .selectAll('.legendCircle')
+  //   .data(nodeRadiusScale.range())
+  //   .enter()
+  //   .append('g')
+  //   .attr('class', 'legendCircle')
+  //   .attr('transform', (d, i) => `translate(170, ${d + 40})`)
 
-  legendRadius
-    .append('circle')
-    .attr('r', (d) => d)
-    .style('stroke', containerStyles.color)
-    .style('fill', 'none')
+  // legendRadius
+  //   .append('circle')
+  //   .attr('r', (d) => d)
+  //   .style('stroke', containerStyles.color)
+  //   .style('fill', 'none')
 
-  legendRadius
-    .append('text')
-    .attr('x', 30)
-    .attr('y', (d) => d)
-    .attr('fill', containerStyles.color)
-    .text((d) => d)
+  // legendRadius
+  //   .append('text')
+  //   .attr('x', 30)
+  //   .attr('y', (d) => d)
+  //   .attr('fill', containerStyles.color)
+  //   .text((d) => d)
 
-  legend.append('text').attr('x', 150).attr('y', 25).attr('font-size', '10px').attr('fill', containerStyles.color).text('Number of connections')
+  // legend.append('text').attr('x', 150).attr('y', 25).attr('font-size', '10px').attr('fill', containerStyles.color).text('Number of connections')
 
   // const legendItems = legend
   //   .selectAll('.legend-item')
@@ -389,7 +389,7 @@ export default function ForceGraph (
     d3.forceY((d) => d.y)
   )
   // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
-  .force('charge', d3.forceManyBody().strength(-250))
+  .force('charge', d3.forceManyBody().strength(-300))
   //.force('cluster', forceCluster().strength(0.15))
 
   if(preventLabelCollision) {
@@ -405,8 +405,8 @@ export default function ForceGraph (
       )
   }
 
-  //updateAttributes(showEle.nodes, showEle.links)
-  //updateLayout()
+  updateAttributes(showEle.nodes, showEle.links)
+  updateLayout()
 
   function uniqueElements(nodes, links) {
     // May not be needed in future: Check for duplicate nodes and links, particularly so since we are constructing the graph only based on relations data
@@ -587,7 +587,7 @@ export default function ForceGraph (
     const updateFunc = update => {
       if (update.size() > 0) {
         // Apply the force
-        simulation.force('charge', d3.forceManyBody().strength(-1550));
+        simulation.force('charge', d3.forceManyBody().strength(-1500));
       }   
     }
     
@@ -596,13 +596,13 @@ export default function ForceGraph (
           .duration(500)
           // .on("start", () => {
           //   // After the second transition, adjust the force strength again
-          //   simulation.force('charge').strength(-1550);
+          //   simulation.force('charge').strength(-1500);
           // })
           .attr("opacity", 0) // fade out
           .remove() // remove from DOM
           .end().then(() => {
               // Remove the force after the transition ends
-              simulation.force('charge', d3.forceManyBody().strength(-250));
+              simulation.force('charge', d3.forceManyBody().strength(-300));
           });
     }
 
