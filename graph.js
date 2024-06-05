@@ -180,6 +180,7 @@ export default function ForceGraph (
 
   // Generate rainbow colors and print RGB codes
   const hubs = Array.from(new Set(links.map(d => d.parent)))
+  console.log('HUBS', hubs)
   //const hubs = Object.keys(links)
   const rainbowColors = [];
   const numberOfColors = hubs.length;
@@ -404,7 +405,7 @@ export default function ForceGraph (
           .iterations(3)
       )
   }
-
+  console.log(showEle.nodes, showEle.links)
   updateAttributes(showEle.nodes, showEle.links)
   updateLayout()
 
@@ -526,84 +527,29 @@ export default function ForceGraph (
     //simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())))
     simulation.on('tick', ticked)
 
-    // // Calculate cluster dimensions
-    // const clusters = d3.groups(showEle.nodes, (d) => d[nodeGroup])
-    // const clusterBoxes = []
-    // clusters.forEach((c) => {
-    //   const textDimensions = getTextSize(c[0], '14px', containerStyles['font-family'])
-    //   const radius = d3.max(c[1].map((d) => d.radius))
-    //   const padding = 10
-    //   const minX = d3.min(c[1].map((d) => d.x)) - radius - padding
-    //   const maxX = d3.max(c[1].map((d) => d.x)) + radius + padding
-    //   const minY = d3.min(c[1].map((d) => d.y)) - radius - padding
-    //   const maxY = d3.max(c[1].map((d) => d.y)) + radius + padding
-    //   clusterBoxes.push({ minX, maxX, minY, maxY, cluster: c[0], textW: textDimensions.width + 5, textH: textDimensions.height + 5 })
-    // })
-
-    // // Update existing cluster rectangles
-    // const updatedClusters = nodeG.selectAll('.cluster').data(clusterBoxes, (d) => d.cluster)
-
-    // updatedClusters.join(
-    //   (enter) => {
-    //     const newCluster = enter
-    //       .append('g')
-    //       .attr('class', 'cluster')
-    //       .attr('opacity', 1)
-    //       .attr('transform', (d) => `translate(${d.minX}, ${d.minY})`)
-    //       .attr('visibility', 'visible')
-
-    //     newCluster
-    //       .append('rect')
-    //       .attr('fill', 'none')
-    //       .attr('stroke', (d) => colorScale(d.cluster))
-    //       .attr('stroke-width', '1px')
-    //       .attr('width', (d) => d.maxX - d.minX)
-    //       .attr('height', (d) => d.maxY - d.minY)
-
-    //     newCluster
-    //       .append('rect')
-    //       .attr('y', (d) => -d.textH)
-    //       .attr('fill', (d) => colorScale(d.cluster))
-    //       .attr('stroke', (d) => colorScale(d.cluster))
-    //       .attr('width', (d) => d.textW)
-    //       .attr('height', (d) => d.textH)
-
-    //     newCluster
-    //       .append('text')
-    //       .attr('x', 3)
-    //       .attr('y', -6)
-    //       .attr('font-size', '14px')
-    //       .attr('fill', 'white')
-    //       .text((d) => d.cluster.toUpperCase())
-
-    //     return newCluster
-    //   },
-    //   (update) => update,
-    //   (exit) => exit.remove()
-    // )
-
     const enterFunc = enter => enter.transition().delay(550).duration(1000).attr("opacity", 1)
     
     const updateFunc = update => {
       if (update.size() > 0) {
         // Apply the force
-        simulation.force('charge', d3.forceManyBody().strength(-1500));
+        simulation.force('charge', d3.forceManyBody().strength(-500));
       }   
     }
     
     const exitFunc = exit => {
-      return exit.transition() // apply transition
-          .duration(500)
+      return exit
+          //.transition() // apply transition
+          //.duration(500)
           // .on("start", () => {
           //   // After the second transition, adjust the force strength again
           //   simulation.force('charge').strength(-1500);
           // })
-          .attr("opacity", 0) // fade out
+          //.attr("opacity", 0) // fade out
           .remove() // remove from DOM
-          .end().then(() => {
-              // Remove the force after the transition ends
-              simulation.force('charge', d3.forceManyBody().strength(-300));
-          });
+          // .end().then(() => {
+          //     // Remove the force after the transition ends
+          //     simulation.force('charge', d3.forceManyBody().strength(-300));
+          // });
     }
 
     // Update existing links
@@ -1170,7 +1116,6 @@ export default function ForceGraph (
   return {
     /* public data update  method */
     update: ({nodes, links, redraw=true}) => {
-      console.log(nodes, links)
       const N = d3.map(nodes, (d) => d[nodeId]).map(intern)
       const LS = d3.map(links, (d) => d[sourceId]).map(intern)
       const LT = d3.map(links, (d) => d[targetId]).map(intern)
@@ -1208,7 +1153,6 @@ export default function ForceGraph (
       reset()
     },
     filter: (options) => {
-      console.log(ele.nodes, ele.links)
       const connectedNodes = findNeighbours(graph, options, 2);
       let entities = []
       connectedNodes.map(d => {
