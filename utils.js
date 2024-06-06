@@ -74,9 +74,9 @@ export function mixColors(color1, color2) {
   // For example, you can average the RGB values or use a different mixing algorithm
   if(!color2) color2 = color1
   const mixedColor = [
-      (color1[0] + color2[0]) / 2,
-      (color1[1] + color2[1]) / 2,
-      (color1[2] + color2[2]) / 2
+      (color1[0] + color2[0]) / 2.5,
+      (color1[1] + color2[1]) / 2.5,
+      (color1[2] + color2[2]) / 2.5
   ];
   return mixedColor;
 }
@@ -223,6 +223,38 @@ export function findParent(links, entity) {
       parents.push(key.Subject);
     }
   });
+
+  if(parents.length === 0) {
+    const link = links.find(d => d.Subject === entity)
+    if (link) parents.push(link.Object)
+  }
   
   return parents;
+}
+
+export function uniqueElements() {
+  // May not be needed in future: Check for duplicate nodes and links, particularly so since we are constructing the graph only based on relations data
+  const uniqueNodes = nodes.reduce((acc, node) => {
+    // Check if a node with the same 'entity' already exists in the accumulator
+    const existingNode = acc.find((n) => n.entity === node.entity);
+    // If not found, add the current node to the accumulator
+    if (!existingNode) {
+      acc.push(node);
+    } 
+    return acc;
+  }, []);
+
+  const uniqueLinks = edges.reduce((acc, link) => {
+    // Check if a link with the same 'Subject' and 'Object' already exists in the accumulator
+    const existingLink = acc.find(
+      (l) => l.Subject === link.Subject && l.Object === link.Object
+    );
+    // If not found, add the current link to the accumulator
+    if (!existingLink) {
+      acc.push(link);
+    }
+    return acc;
+  }, []);
+
+  return {nodes: uniqueNodes, links:uniqueLinks}
 }
