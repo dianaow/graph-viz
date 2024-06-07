@@ -97,24 +97,6 @@ export default function ForceGraph (
   // Initial states
   const maxLineLength = 22
   const showEle = {}
-  let singleNodeIDs = [] // an array to store the names of nodes with no connections to other nodes
-
-  // Click helper states
-  let clickedNodes = [] // an array to store the names of clicked nodes
-  let clickCount = 0
-  let timer
-
-  // View states
-  let searched = false // if node is searched for from the searchbox or tree, searched=true
-  let clickedSP = false // if two nodes are clicked to reveal the shortest path (SP) results between them, clickedSP=true
-  let clickedNN = false // if a node has been clicked to reveal its nearest neighbor (NN), clickedNN=true
-
-  // Button activation states
-  // Note: there are different consequences for a VIEW state and BUTTON ACTIVATION state, so these variables are separated)
-  let showArrows = true // if edge directions are shown on graph, showArrows=true
-  let showNeighbors = false // if user is allowed to mouseover node to begin search for OUTWARD-BOUND ONLY neighbours 2 degrees away, showNeighours=true
-  let showShortestPath = false // if user is allowed to click on any node to begin SP search, showShortestPath = true (this flag helps to differentiate from click-to-drag event)
-  let showSingleNodes = true // to show/hide on screen nodes with no connections
 
   const ele = uniqueElements(nodes, links)
 
@@ -134,20 +116,6 @@ export default function ForceGraph (
     ...d
   }))
 
-  const linkWidthScale = d3
-    .scaleSqrt()
-    .domain(d3.extent(showEle.links, (d) => d[linkStyles.strokeWidth] || 1))
-    .range([1, 3])
-    .clamp(true)
-
-  const colors = ["#418BFC", "#46BCC8", "#EB5E68", "#B6BE1C", "#F64D1A", "#BA6DE4", "orange", "#ffffff"]
-
-  // only assign colors to the top 7 categories with the most nodes
-  const groupedData = d3.rollup(showEle.nodes, v => v.length, d => d.parent)
-  const groupedData1 = Array.from(groupedData, ([key, value]) => ({ key, value }));
-  groupedData1.sort((a, b) => d3.descending(a.value, b.value))
-  const hubs = groupedData1.map(d => d.key).slice(0, colors.length - 1)
-  
   /// ///////////////// Set up initial  DOM elements on screen ///////////////////
   const container = d3.select(containerSelector)
 
@@ -162,26 +130,6 @@ export default function ForceGraph (
     tooltipDiv.style(prop, tooltip.styles[prop])
   }
 
-  // Create a container to show / track clicked node selection to find shortest path
-  const message = container.append('div').attr('class', 'message').style('position', 'absolute').style('top', '90px').style('left', '50%').style('transform', 'translate(-50%, -50%)').style('text-align', 'center').style('visibility', 'hidden')
-
-  message.append('div').attr('class', 'clickedNodes-1').style('padding', '2px').style('font-size', '14px')
-
-  message.append('div').attr('class', 'clickedNodes-2').style('padding', '2px').style('font-size', '14px')
-
-  message.append('div').attr('class', 'shortestPath-status').style('padding', '2px').style('font-size', '12px')
-
-  message
-    .append('div')
-    .attr('class', 'clickedNodes-reset')
-    .style('text-decoration', 'underline')
-    .style('pointer-events', 'auto')
-    .style('cursor', 'pointer')
-    .html('RESET')
-    .on('click', function () {
-      reset()
-    })
-
   // Create a container for the graph
   const svg = container
     .append('svg')
@@ -189,44 +137,6 @@ export default function ForceGraph (
     .attr('height', height)
     .attr('viewBox', [-width / 2, -height / 2, width, height])
     .attr('style', 'max-width: 100%; height: auto; pointer-events: auto;')
-
-  // Create and store arrowheads that will be used when the lines are rendered later
-  svg.append('defs').append('marker').attr('id', 'arrowhead').attr('viewBox', '-0 -6 12 12').attr('refX', 0).attr('refY', 0).attr('orient', 'auto').attr('markerWidth', 6).attr('markerHeight', 6).attr('xoverflow', 'visible').append('svg:path').attr('d', 'M 0,-6 L 12 ,0 L 0,6').attr('fill', linkStyles.stroke).style('stroke', 'none')
-
-  colors.forEach((color) => {
-    if (!linkStyles.stroke) {
-      svg
-        .append('defs')
-        .append('marker')
-        .attr('id', 'arrowhead-' + color)
-        .attr('viewBox', '-0 -5 10 10')
-        .attr('refX', 0)
-        .attr('refY', 0)
-        .attr('orient', 'auto')
-        .attr('markerWidth', 5)
-        .attr('markerHeight', 5)
-        .attr('xoverflow', 'visible')
-        .append('svg:path')
-        .attr('d', 'M 0,-5 L 10 ,0 L 0,5')
-        .attr('fill', color)
-        .style('stroke', 'none')
-    }
-
-    if (nodeStyles.type === 'gradient') {
-      const radialGradient = svg
-        .append('defs')
-        .append('radialGradient')
-        .attr('id', 'radial-gradient-' + color)
-        .attr('cx', '50%') // The x-center of the gradient
-        .attr('cy', '50%') // The y-center of the gradient
-        .attr('r', '50%') // The radius of the gradient
-
-      // Add colors to make the gradient give a faux 3d effect
-      radialGradient.append('stop').attr('offset', '0%').attr('stop-color', color)
-
-      radialGradient.append('stop').attr('offset', '90%').attr('stop-color', containerStyles['background-color'])
-    }
-  })
 
   const g = svg.append('g').attr('class', 'main-group')
 
@@ -256,9 +166,6 @@ export default function ForceGraph (
     d3
       .forceLink()
       .id((d) => d.id)
-      //.distance((d) => {
-        //return d.source.id === 'sutainable energy' ? 75 : 55
-      //})
   )
   .force(
     'x',
@@ -269,7 +176,7 @@ export default function ForceGraph (
     d3.forceY((d) => d.y)
   )
   // .force("charge", d3.forceManyBody().strength(Math.max(-200, -10000 / showEle.nodes.length)))
-  .force('charge', d3.forceManyBody().strength(-600))
+  .force('charge', d3.forceManyBody().strength(-1000))
   //.force('cluster', forceCluster().strength(0.15))
 
   if(preventLabelCollision) {
@@ -287,33 +194,6 @@ export default function ForceGraph (
 
   updateAttributes(showEle.nodes, showEle.links)
   updateLayout()
-
-  function uniqueElements(nodes, links) {
-    // May not be needed in future: Check for duplicate nodes and links, particularly so since we are constructing the graph only based on relations data
-    const uniqueNodes = nodes.reduce((acc, node) => {
-      // Check if a node with the same 'entity' already exists in the accumulator
-      const existingNode = acc.find((n) => n[nodeId] === node[nodeId]);
-      // If not found, add the current node to the accumulator
-      if (!existingNode) {
-        acc.push(node);
-      } 
-      return acc;
-    }, []);
-
-    const uniqueLinks = links.reduce((acc, link) => {
-      // Check if a link with the same 'Subject' and 'Object' already exists in the accumulator
-      const existingLink = acc.find(
-        (l) => l[sourceId] === link[sourceId] && l[targetId] === link[targetId]
-      );
-      // If not found, add the current link to the accumulator
-      if (!existingLink) {
-        acc.push(link);
-      }
-      return acc;
-    }, []);
-
-    return {nodes: uniqueNodes, links:uniqueLinks}
-  }
 
   function updateAttributes(nodes, links) {
     const graph = initGraphologyGraph(nodes, links);
@@ -344,7 +224,13 @@ export default function ForceGraph (
     const nodeRadiusScale = d3
       .scaleSqrt()
       .domain([0, d3.max(nodes, d => d.linkCnt)])
-      .range([2, 22])
+      .range([4, 28])
+      .clamp(true)
+
+    const linkWidthScale = d3
+      .scaleSqrt()
+      .domain(d3.extent(links, (d) => d[linkStyles.strokeWidth] || 1))
+      .range([1, 3])
       .clamp(true)
 
     nodes.forEach((n, i) => {
@@ -376,45 +262,8 @@ export default function ForceGraph (
   }
 
   function updateLayout () {
-    const graph = initGraphologyGraph(showEle.nodes, showEle.links)
-    
+    //const graph = initGraphologyGraph(showEle.nodes, showEle.links)
     //colorNodes(graph, showEle.nodes);
-
-    const clickNodeForShortestPath = (dd) => {
-      if (clickedNodes.length < 2) {
-        if (clickedNodes.indexOf(dd.id) === -1) {
-          // if the same node is not already clicked, add to array
-          clickedNodes.push(dd.id)
-        } else {
-          clickedNodes.splice(dd.id, 1) // remove a clicked node if the same node is clicked again
-        }
-      }
-      clickedNodesFeedback(clickedNodes) // render clicked node(s) name on screen to let the user know they have engaged with the circle
-      // Only proceed with finding shortest path between 2 different clicked nodes
-      if (clickedNodes.length === 2) {
-        const connectedNodes = findShortestPath(graph, clickedNodes)
-        clickedSP = true // Flag to prevent any action that should not happen during shortest path view
-        if (connectedNodes) {
-          console.log('highlight connections')
-          // Only proceed with showing the nodes and paths that constitute the shortest path if it exist
-          highlightConnections(connectedNodes)
-        } else {
-          // Provide feedback to user that no shortest path exist between the 2 nodes
-          d3.select('.shortestPath-status').html('No shortest path found. Would you like to try again?')
-        }
-        // disable tree interaction to prevent interference with current shortest path view
-        document.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => (checkbox.disabled = true))
-      }
-    }
-
-    const clickNodeForNearestNeighbor = (event, dd) => {
-      updateTooltip(event, dd) // show tooltip on mouseover any node
-
-      const connectedNodes = findNeighbours(graph, [dd])
-      if (connectedNodes) highlightConnections(connectedNodes)
-      message.style('visibility', 'visible') // Show RESET message
-      clickedNN = true
-    }
 
     simulation.nodes(showEle.nodes).force('link').links(showEle.links)
 
@@ -423,31 +272,58 @@ export default function ForceGraph (
     //simulation.tick(Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay())))
     simulation.on('tick', ticked)
 
+    const t = svg.transition().duration(550);
+
     const enterFunc = enter => {
-      enter.transition().delay(550).duration(1000)
-        .attr("opacity", 1)
+      enter.transition(t).attr("opacity", 1)
     }
     
-    const updateFunc = update => {
-      if (update.size() > 0) {
-        // Apply the force
-        simulation.force('charge', d3.forceManyBody().strength(-600));
-      }   
+    const updateNodeFunc = update => {
+      // if (update.size() > 0) {
+      //   simulation.force('charge', d3.forceManyBody().strength(-1000));
+      // }   
       update
         .select('circle')
+        .transition(t)
         .attr('r', d => d.radius)
         .attr('fill', (d) => (nodeStyles.type === 'gradient' ? `url('#radial-gradient-${d.color}')` : (`rgb(${d.color[0]}, ${d.color[1]}, ${d.color[2]})`)))
         .attr('stroke', (d) => nodeStyles.stroke || (`rgb(${d.color[0]}, ${d.color[1]}, ${d.color[2]})`));
       }
     
-    const updateFunc1 = update => {
+    const updateLinkFunc = update => {
       update
+        .transition(t)
         .attr('stroke', (d) => {
           const node = showEle.nodes.find(el => el.id === d.target.id) 
           return linkStyles.stroke || `rgb(${node.color[0]}, ${node.color[1]}, ${node.color[2]})`
         })
       }
 
+    function updateTextFunc(selection) {
+      selection
+        .select('text')
+        .attr('transform', (d) => `translate(${(-d.width + (d.radius * 2))/ 2}, ${d.radius + 5})`)  // position label below node without overlap
+        .attr('font-size', (d) => Math.max(8, d.radius)) // label size is proportionate to node size
+
+      selection.each(function(d) {
+        const text = d3.select(this).select('text');
+        // Bind new data to tspans
+        const tspans = text.selectAll('tspan')
+          .data(splitLongText(d[labelStyles.label], maxLineLength));
+    
+        // Enter new tspans if needed
+        tspans.enter()
+          .append('tspan')
+          .attr('x', 0)
+          .attr('y', (_, i) => Math.max(8, d.radius) * i)
+          .merge(tspans)  // Merge the enter and update selections
+          .text((d) => d);
+    
+        // Remove old tspans if needed
+        tspans.exit().remove();
+      });
+    }
+      
     const exitFunc = exit => {
       return exit
           //.transition() // apply transition
@@ -480,29 +356,15 @@ export default function ForceGraph (
             })
             .attr('stroke-width', (d) => d.strokeWidth)
             .attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))      
-            .on('mouseover', function (event, dd) {
-              updateLinkTooltip(event, dd) // show tooltip on mouseover any link
-            })
-            .on('mouseleave', function () {
-              tooltipDiv.style('visibility', 'hidden')
-            })
             .attr('opacity', 0)
-            .call(enter => enter.transition().delay(550).duration(1000).attr("opacity", linkStyles.strokeOpacity)),
+            .call(enter => enter.transition(t).attr("opacity", linkStyles.strokeOpacity)),
 
-        update => update.call(updateFunc1),
+        update => update.call(updateLinkFunc),
         exit => exit.call(exitFunc)
       )
       .attr('pointer-events', 'auto')
       .attr('cursor', 'pointer')
       .attr('fill', 'none')
-
-    if (showArrows) {
-      if (!linkStyles.stroke) {
-        linkG.selectAll('path.link').attr('marker-end', (d) => `url(#arrowhead-${d.source.color})`) // render arrow heads in the middle of line
-      } else {
-        linkG.selectAll('path.link').attr('marker-end', 'url(#arrowhead)')
-      }
-    }
 
     // Update existing link labels
     const linkTexts = linkTextG
@@ -525,7 +387,7 @@ export default function ForceGraph (
             .attr('text-anchor', 'middle')
             .text((d) => d[labelStyles.edge.label]),
 
-        update => update.call(updateFunc),
+        update => update,
         exit => exit.call(exitFunc)
       )
       .attr('opacity', labelStyles.edge.opacity)
@@ -544,34 +406,6 @@ export default function ForceGraph (
           .attr('cursor', 'pointer')
           .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
           .call(drag(simulation))
-          .on('click', function (event, dd) {
-            event.preventDefault()
-            if (searched) return
-            clickCount++
-            if (clickCount === 1) {
-              // Different types of click actions based on button activated
-              if (showShortestPath) {
-                timer = setTimeout(function () {
-                  clickNodeForShortestPath(dd)
-                  clickCount = 0
-                }, 300)
-              } else if (showNeighbors) {
-                timer = setTimeout(function () {
-                  clickNodeForNearestNeighbor(event, dd)
-                  clickCount = 0
-                }, 300)
-              } else {
-                // reset the clickCount if the time between first and second click exceeds 300ms.
-                timer = setTimeout(function () {
-                  clickCount = 0
-                }, 300)
-              }
-              // disable expand/collapse feature if either nearest neighbour or shortest path button is activated
-            } else if (clickCount === 2 && !showShortestPath && !showNeighbors) {
-              clearTimeout(timer)
-              clickCount = 0
-            }
-          })
           .attr('opacity', 0)
           .on('dblclick.zoom', null)
           .call(enterFunc)
@@ -587,7 +421,7 @@ export default function ForceGraph (
 
         return newNode
       },
-      (update) => update.call(updateFunc),
+      (update) => update.call(updateNodeFunc),
       exit => exit.call(exitFunc)
     )
       
@@ -600,7 +434,7 @@ export default function ForceGraph (
           .append('g')
           .attr('class', (d) => 'label label-' + d.id.replaceAll(' ', '-'))
           .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
-          .attr('visibility', (d) => d.type === 'main' ? labelStyles.visibility : 'hidden')
+          //.attr('visibility', (d) => d.type === 'main' ? labelStyles.visibility : 'hidden')
           .attr('opacity', 0)
           .call(enterFunc)
 
@@ -617,16 +451,18 @@ export default function ForceGraph (
 
         text
           .selectAll('tspan')
-          .data((d) => splitLongText(d[labelStyles.label], maxLineLength)) // max line length is 30
+          .data((d) => {
+            return splitLongText(d[labelStyles.label], maxLineLength).map(t => [t, Math.max(8, d.radius)])
+          }) // max line length is 30
           .enter()
           .append('tspan')
           .attr('x', 0)
-          .attr('y', (d, i) => 10.5 * i)
-          .text((d) => d)
+          .attr('y', (d, i) => d[1] * i)
+          .text((d) => d[0])
 
         return newText
       },
-      (update) => update.call(updateFunc),
+      (update) => update.call(updateTextFunc),
       exit => exit.call(exitFunc)
     )
 
@@ -636,21 +472,29 @@ export default function ForceGraph (
       linkG.selectAll('path.link').attr('d', (d) => (linkStyles.type === 'arc' ? generateArc(d, 1, true) : generatePath(d, true)))
       nodeG.selectAll('.node').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
       textG.selectAll('.label').attr('transform', (d) => `translate(${d.x}, ${d.y})`)
-      linkTexts.attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 6).attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
+      linkTextG.selectAll('.link').attr('x', (d) => (d.target.x - d.source.x) / 2 + d.source.x + 6).attr('y', (d) => (d.target.y - d.source.y) / 2 + d.source.y)
     }
 
     nodeG.selectAll('.node')
-    .on('mouseover', function (event, dd) {
-      updateTooltip(event, dd) // show tooltip on mouseover any node
-      d3.select(this).select('circle').transition().duration(500).attr('r', (d) => d.radius * 1.2)
-      d3.select('.label-' + dd.id.replaceAll(' ', '-')).transition().duration(500).attr('visibility', 'visible')
-    })
-    .on('mouseleave', function () {
-      tooltipDiv.style('visibility', 'hidden')
-      d3.select(this).select('circle').transition().duration(500).attr('r', (d) => d.radius)
-      d3.selectAll('.label').transition().duration(500).attr('visibility', (d) => d.type === 'main' ? labelStyles.visibility : 'hidden')
-    })
-    
+      .on('mouseover', function (event, dd) {
+        updateTooltip(event, dd) // show tooltip on mouseover any node
+        d3.select(this).select('circle').transition().delay(500).duration(500).attr('r', (d) => d.radius * 1.2)
+        d3.select('.label-' + dd.id.replaceAll(' ', '-')).transition().duration(500).attr('visibility', 'visible')
+      })
+      .on('mouseleave', function () {
+        tooltipDiv.style('visibility', 'hidden')
+        d3.select(this).select('circle').transition().duration(500).attr('r', (d) => d.radius)
+        d3.selectAll('.label').transition().duration(500).attr('visibility', (d) => d.type === 'main' ? labelStyles.visibility : 'hidden')
+      })
+
+    linkG.selectAll('path.link')
+      .on('mouseover', function (event, dd) {
+        updateLinkTooltip(event, dd) // show tooltip on mouseover any link
+      })
+      .on('mouseleave', function () {
+        tooltipDiv.style('visibility', 'hidden')
+      })
+
     function drag (simulation) {
       function dragstarted (event, d) {
         if (!event.active) simulation.alpha(0.1).alphaTarget(0.1).restart()
@@ -675,90 +519,6 @@ export default function ForceGraph (
   }
   ////////////////////////////////////////////////////////////////////////////////
 
-  ///////////////////////// INTERACTION-RELATED FUNCTIONS ////////////////////////
-  function highlightNode (dd) {
-    nodeG.selectAll('.node').attr('opacity', (d) => (d.id === dd ? 1 : 0.2))
-    linkG.selectAll('path.link').attr('opacity', 0.1)
-    linkTextG.selectAll('text.link').attr('opacity', 0.1)
-    textG.selectAll('.label').attr('visibility', (d) => (d.id === dd ? 'visible' : 'hidden'))
-  }
-
-  function highlightConnections (connectedNodes) {
-    nodeG.selectAll('.node').attr('opacity', (d) => (connectedNodes.indexOf(d.id) !== -1 ? 1 : 0))
-    linkG.selectAll('path.link').attr('opacity', (d) => (connectedNodes.indexOf(d.source.id) !== -1 && connectedNodes.indexOf(d.target.id) !== -1 ? 1 : 0))
-    linkTextG.selectAll('text.link').attr('opacity', (d) => (connectedNodes.indexOf(d.source.id) !== -1 && connectedNodes.indexOf(d.target.id) !== -1 ? 1 : 0))
-    textG.selectAll('.label').attr('visibility', (d) => (connectedNodes.indexOf(d.id) !== -1 ? 'visible' : 'hidden'))
-  }
-
-  // Un-highlight all elements and hide tooltip
-  function reset () {
-    nodeG.selectAll('.node').attr('opacity', 1)
-    nodeG.selectAll('.node').selectAll('circle').attr('stroke', nodeStyles.stroke).attr('stroke-width', nodeStyles.strokeWidth)
-    linkG.selectAll('path.link').attr('opacity', (d) => (showEle.links.length > 200 ? 0.25 : linkStyles.strokeOpacity))
-    linkTextG.selectAll('text.link').attr('opacity', 1)
-    textG.selectAll('.label').attr('visibility', labelStyles.visibility)
-
-    tooltipDiv.style('visibility', 'hidden')
-
-    if (searched) {
-      svg.transition().duration(500).call(zoomHandler.transform, d3.zoomIdentity)
-      searched = false
-      document.getElementById('search-input').value = ''
-      document.getElementById('suggestions-container').innerHTML = ''
-      document.getElementById('reset-search').style.display = 'none'
-      message.select('.shortestPath-status').html('')
-    }
-
-    // Undo clicked states
-    clickedNN = false
-    clickedSP = false
-    clickedNodes = []
-    message.select('.clickedNodes-1').html('')
-    message.select('.clickedNodes-2').html('')
-    message.select('.shortestPath-status').html('')
-    message.style('visibility', 'hidden')
-
-    tooltipDiv.style('visibility', 'hidden')
-  }
-
-  function clickedNodesFeedback (clickedNodes) {
-    // Track which nodes have been clicked and render their names on screen
-    if (clickedNodes[0]) d3.select('.clickedNodes-1').html('Start node: ' + clickedNodes[0])
-    if (clickedNodes[1]) d3.select('.clickedNodes-2').html('End node: ' + clickedNodes[1])
-
-    d3.select('.message').style('visibility', 'visible')
-  }
-
-  function findShortestPath (graph, clickedNodes) {
-    // OUTWARD-BOUND only, meaning the first clickedNode has to be the source node of the path
-    const connectedNodes = dijkstra.bidirectional(graph, clickedNodes[0], clickedNodes[1])
-    if (connectedNodes) {
-      // Only proceed with showing the nodes and paths that constitute the shortest path if it exist
-      highlightConnections(connectedNodes)
-    } else {
-      // Provide feedback to user that no shortest path exist between the 2 nodes
-      d3.select('.shortestPath-status').html('No shortest path found. Would you like to try again?')
-    }
-  }
-
-  // Find neighboring connections of the clicked node (up to specified degrees away, OUTWARD-BOUND only: meaning target nodes their links)
-  function findNeighbours(graph, dd_arr, DEGREE) {
-    let connectedNodes = [];
-    dd_arr.forEach((dd) => {
-      bfsFromNode(graph, dd.id ? dd.id : dd, function (node, attr, depth) {
-        if (depth <= DEGREE) {
-          connectedNodes.push(node);
-        }
-      }, {mode: 'outbound'});
-      bfsFromNode(graph, dd.id ? dd.id : dd, function (node, attr, depth) {
-        if (depth <= DEGREE) {
-          connectedNodes.push(node);
-        }
-      }, {mode: 'inbound'});   
-    });
-    return connectedNodes;
-  }
-
   // Function to calculate incoming and outgoing connections
   function calculateConnections(graph, node) {
     const incoming = graph.inDegree(node);
@@ -766,25 +526,25 @@ export default function ForceGraph (
     return incoming + outgoing;
   }
 
-  // Function to color nodes based on neighbors
-  function colorNodes(graph, nodes) {
-    const visited = new Set();
+  // // Function to color nodes based on neighbors
+  // function colorNodes(graph, nodes) {
+  //   const visited = new Set();
 
-    function traverse(node) {
-      if (!visited.has(node)) {
-        visited.add(node);
-        const neighbors = findNeighbours(graph, [node], 1).slice(1);
-        let nodeColor = getNodeColor(nodes, node);
-        neighbors.forEach(neighbor => {
-          const neighborColor = getNodeColor(nodes, neighbor);
-          nodeColor = mixColors(nodeColor, neighborColor);
-        });
-        setNodeColor(nodes, node, nodeColor);
-        neighbors.forEach(traverse);
-      }
-    }
-    getRootNodes(graph).forEach(rootNode => traverse(rootNode));
-  }
+  //   function traverse(node) {
+  //     if (!visited.has(node)) {
+  //       visited.add(node);
+  //       const neighbors = findNeighbours(graph, [node], 1).slice(1);
+  //       let nodeColor = getNodeColor(nodes, node);
+  //       neighbors.forEach(neighbor => {
+  //         const neighborColor = getNodeColor(nodes, neighbor);
+  //         nodeColor = mixColors(nodeColor, neighborColor);
+  //       });
+  //       setNodeColor(nodes, node, nodeColor);
+  //       neighbors.forEach(traverse);
+  //     }
+  //   }
+  //   getRootNodes(graph).forEach(rootNode => traverse(rootNode));
+  // }
     
   function updateTooltip (event, d) {
     tooltip.custom(tooltipDiv, d)
@@ -835,18 +595,32 @@ export default function ForceGraph (
       .style('top', event.y + 'px')
   }
 
-  // Function to zoom to a specific node
-  function zoomToNode (node) {
-    // Calculate the new zoom transform
-    const scale = 2 // You can adjust the zoom level as needed
-    const x = -node.x * scale
-    const y = -node.y * scale
-    const transform = d3.zoomIdentity.translate(x, y).scale(scale)
-    // Apply the new zoom transform with smooth transition
-    svg.transition().duration(500).call(zoomHandler.transform, transform)
-  }
-  /// ///////////////////////////////////////////////////////////////////////////
+  function uniqueElements(nodes, links) {
+    // May not be needed in future: Check for duplicate nodes and links, particularly so since we are constructing the graph only based on relations data
+    const uniqueNodes = nodes.reduce((acc, node) => {
+      // Check if a node with the same 'entity' already exists in the accumulator
+      const existingNode = acc.find((n) => n[nodeId] === node[nodeId]);
+      // If not found, add the current node to the accumulator
+      if (!existingNode) {
+        acc.push(node);
+      } 
+      return acc;
+    }, []);
 
+    const uniqueLinks = links.reduce((acc, link) => {
+      // Check if a link with the same 'Subject' and 'Object' already exists in the accumulator
+      const existingLink = acc.find(
+        (l) => l[sourceId] === link[sourceId] && l[targetId] === link[targetId]
+      );
+      // If not found, add the current link to the accumulator
+      if (!existingLink) {
+        acc.push(link);
+      }
+      return acc;
+    }, []);
+
+    return {nodes: uniqueNodes, links:uniqueLinks}
+  }
   /// //////////////////// HELPER FUNCTIONS ////////////////////////
   function intern (value) {
     return value !== null && typeof value === 'object' ? value.valueOf() : value
@@ -879,84 +653,20 @@ export default function ForceGraph (
     return graph
   }
 
-  function searchHandler (item) {
-    searched = true
-    const node = showEle.nodes.find((n) => n.id === item)
-    if (node) {
-      zoomToNode(node)
-      highlightNode(item)
-    } else {
-      d3.select('.message').style('visibility', 'visible')
-      d3.select('.shortestPath-status').html('No such node found.')
-    }
-  }
+  const eventSubscriptions = {
+    nodeClick: null
+  };
 
-  function buttonClickHandler (buttonId) {
-    // Check which button was clicked using its ID
-    switch (buttonId) {
-      case 'direction': // SHOW DIRECTION
-        showArrows = !showArrows
-        if (showArrows) {
-          linkG.selectAll('path.link').attr('marker-end', 'url(#arrowhead)')
-        } else {
-          linkG.selectAll('path.link').attr('marker-end', null)
-        }
-        break
-      case 'nearest_neighbour': // SHOW NEAREST NEIGHBOUR
-        if (clickedSP || searched) return // disable action if screen is at shortest path view / searched node view
-        showNeighbors = !showNeighbors
-        if (!showNeighbors) {
-          reset()
-        }
-        showShortestPath = false
-        break
-      case 'shortest_path': // SHOW SHORTEST PATH
-        if (searched) return // disable action if screen is at searched node view
-        showShortestPath = !showShortestPath
-        if (!showShortestPath) {
-          reset()
-        }
-        showNeighbors = false
-        clickedNN = false
-        break
-      case 'hide_singlenodes':
-        if (clickedSP || searched || clickedNN) return // disable action if screen is at shortest path view / searched node view  / nearest neighbor view
-        // Note: If a single node is still shown on screen despite clicking the button, it's because some nodes have links where the source and target is the node itself.
-        showSingleNodes = !showSingleNodes
-        if (showSingleNodes) {
-          // Find nodes without any connections
-          const graph = initGraphologyGraph(showEle.nodes, showEle.links)
-          singleNodeIDs = showEle.nodes.filter((n) => graph.degreeWithoutSelfLoops(n.id) === 0).map((d) => d.id)
-          // Hide the opacity of these single nodes
-          nodeG
-            .selectAll('.node')
-            .filter((d) => singleNodeIDs.indexOf(d.id) !== -1)
-            .attr('opacity', 0)
-          textG
-            .selectAll('.label')
-            .filter((d) => singleNodeIDs.indexOf(d.id) !== -1)
-            .attr('visibility', 'hidden')
-        } else {
-          nodeG.selectAll('.node').attr('opacity', 1)
-          textG.selectAll('.label').attr('visibility', labelStyles.visibility)
-        }
-        break
-      case 'reset':
-        reset()
-        clickedNodes = []
-        clickedSP = false
-        clickedNN = false
-        showArrows = false
-        showNeighbors = false
-        showShortestPath = false
-        searched = false
-        showSingleNodes = true
-        break
-      default:
-        // Handle cases where an unknown button was clicked
-        break
+  // Function to reapply event listeners to nodes
+  const reapplyEventListeners = () => {
+    if (eventSubscriptions.nodeClick) {
+      d3.selectAll('.node').on('click', function (event, d) {
+        eventSubscriptions.nodeClick({
+          clickedNodeData: d,
+        });
+      });
     }
-  }
+  };
 
   return {
     /* public data update  method */
@@ -987,38 +697,17 @@ export default function ForceGraph (
       }
 
       updateLayout()
-    },
-    /* public methods that (correspond to required functionality) */
-    search: (searchString) => {
-      searchHandler (searchString)
-    },
-    closeSearch: (searchString) => {
-      reset()
-    },
-    filter: (options) => {
-      const connectedNodes = findNeighbours(graph, options, 2);
-      let entities = []
-      connectedNodes.map(d => {
-        entities.push(ele.nodes.find(node => node.entity === d) || {entity: d})
-      })
-      return {nodes: entities, links: ele.links.filter(d => connectedNodes.indexOf(d[sourceId]) !== -1 && connectedNodes.indexOf(d[targetId]) !== -1)}
+
+      // Reapply event listeners after layout update
+      reapplyEventListeners();
     },
     /* event subscription method, provides interface for graph specific events e.g. click on node */
     on: (eventName, callback) => {
-      if(eventName === 'nodeClick') {
-        nodeG.selectAll('.node').on('click', function (event, d) {
-          // Call the provided callback with the relevant information
-          callback({
-            clickedNodeData: d,
-          });
-        });
+      if (eventName === 'nodeClick') {
+        eventSubscriptions.nodeClick = callback;
+        // Apply the event listener to the current nodes
+        reapplyEventListeners();
       }
-    },
-    showNearestNeighbour: () => {
-      buttonClickHandler ('nearest_neighbour')
-    },
-    showShortestPath: () => {
-      buttonClickHandler ('shortest_path')
     }
   }
 }
